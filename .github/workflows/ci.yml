@@ -50,3 +50,4 @@ jobs:
           node test/turbo.test.mjs
           node test/host.test.mjs
           node test/fluid.test.mjs
+          node test/client-lifecycle.test.mjs
