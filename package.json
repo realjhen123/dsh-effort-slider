@@ -43,7 +43,7 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node smoke-test.mjs && node test/metrics.test.mjs && node test/turbo.test.mjs && node test/host.test.mjs && node test/fluid.test.mjs"
+    "test": "node smoke-test.mjs && node test/metrics.test.mjs && node test/turbo.test.mjs && node test/host.test.mjs && node test/fluid.test.mjs && node test/client-lifecycle.test.mjs"
   },
   "repository": {
     "type": "git",
