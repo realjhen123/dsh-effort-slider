@@ -1,6 +1,6 @@
 # dsh-effort-slider
 
-**简体中文** | [English](#english)
+**简体中文** | [English](README.en.md)
 
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）用的**科幻风推理等级滑条**：输入框里一枚发光核心，点开是一条悬浮能量滑条；在最高档之上还有一档 **Ultra**，以及一个把活全部派给子代理的**闪电模式**，旁边实时显示车队 tok/s。
 
@@ -151,17 +151,3 @@ THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许�
 - **[React](https://github.com/facebook/react)**（MIT）——peer dependency，从宿主的模块加载器取，不打包。
 
 本插件**零运行时依赖**、不联网、无遥测。除上面那 4 个 skill（第三方源码，原样打包在 `skills/`，可直接不装）之外，仓库里不含其他第三方源码。
-
-## English
-
-[简体中文](#dsh-effort-slider) | **English**
-
-**dsh-effort-slider** — a sci-fi reasoning-effort slider for DeepSeek Harness (DSH). It replaces the plain effort selector with an animated energy bar, and adds three things on top:
-
-- **Ultra level** — a 6th stop above MAX: it pins the model's highest real effort level and injects an English *rigor contract* (define done first, evidence over claims, adversarial second pass, root cause first, explicit stop rule).
-- **Lightning mode** (off by default) — injects an *orchestration contract*: the parent agent only plans, decomposes, dispatches, reviews and integrates, while subagents do the work; dispatch happens in parallel within a single message, child prompts must be self-contained, and children return pointers to artifacts instead of pasting their output back.
-- **Fleet tok/s readout** — live token throughput of this session's subagents, shown as a full integer (no `k` shorthand).
-
-The plugin ships a built `lib/client.js`, so it works right after installation (`dsh plugin add github:yuhub233/dsh-effort-slider`, DSH Desktop ≥ 2.0.9). It stores one JSON file locally and makes no network requests. Prompt-injection is scoped to a single session id, and the injected text is only re-sent when it actually changes.
-
-MIT licensed. The prompt-engineering ideas borrow from Anthropic's public multi-agent writing and the community [`superpowers`](https://github.com/obra/superpowers) skill set (MIT); the bolt outline is Feather Icons' `zap` (MIT). Those four skills **are** bundled verbatim under [`skills/`](skills/) (21 upstream files, MIT text included) — but DSH does not discover skills from a plugin directory, so they only become loadable once copied into `~/.dsh/skills/` (one-liner in [`skills/README.md`](skills/README.md)). The policy text is self-contained, so the plugin works fine without them. See [`THIRD-PARTY.md`](THIRD-PARTY.md) for the full, itemised credits.
