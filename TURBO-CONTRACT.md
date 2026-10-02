@@ -71,9 +71,9 @@ export function createPolicyInjector(ctx, { log, resolve })
 
 ### 3.4 路由（扩展已有 `index.mjs`，**不动** `PATCH .../preferences`）
 
-- `GET  /plugins/dsh-client-effort-slider/turbo?session=<id>` →
+- `GET  /plugins/dsh-effort-slider/turbo?session=<id>` →
   `{ ok, session, lightning, ultra, rate, gen, agents, generating, total, stamp }`
-- `PATCH /plugins/dsh-client-effort-slider/turbo` body `{ session, lightning?, ultra? }` →
+- `PATCH /plugins/dsh-effort-slider/turbo` body `{ session, lightning?, ultra? }` →
   `{ ok, lightning, ultra }`（持久化到 `DSH_HOME/storages/effort-slider.json` 的 `sessions` 字段，原子写）
 
 ## 4. DOM / CSS 契约（客户端与 CSS 各改各的文件，靠这张表对齐）
@@ -110,11 +110,14 @@ export function createPolicyInjector(ctx, { log, resolve })
 
 | 来源 | 用途 | 形态 |
 |---|---|---|
-| superpowers（MIT）`dispatching-parallel-agents` / `subagent-driven-development` | 闪电：派活与集成纪律 | vendor 成 DSH skill |
-| superpowers（MIT）`verification-before-completion` / `systematic-debugging` | ULTRA：证据与根因纪律 | vendor 成 DSH skill |
-| Anthropic 多智能体工程博客 | 委派契约、规模阶梯、×15 token 事实 | 策略文本依据 |
-| ClaudeWorld S26/S28 | effort vs orchestration 分离、7 个质量模式与反模式 | 策略文本骨架 |
+| [obra/superpowers](https://github.com/obra/superpowers)（MIT）`dispatching-parallel-agents` / `subagent-driven-development` | 闪电：派活与集成纪律 | 策略文本依据（**不 vendor**：DSH 上不保证存在，策略里写明"没有就跳过"） |
+| [obra/superpowers](https://github.com/obra/superpowers)（MIT）`verification-before-completion` / `systematic-debugging` | Ultra：证据与根因纪律 | 同上 |
+| [Anthropic：How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)（2025-06-13） | 委派契约、规模阶梯、×15 token 事实、产物写文件回传指针 | 策略文本依据 |
+| 社区对 Claude Code 档位设置的整理（ClaudeWorld S26/S28 等） | effort vs orchestration 正交、7 个质量模式与反模式 | 策略文本骨架 |
+| [Feather Icons](https://github.com/feathericons/feather) `zap`（MIT） | 闪电按钮 SVG 路径 | 复制了一行路径字符串 |
 | 本机 gpt-6-astra 通道（`subagent_gpt6`） | 卡点时的第二意见 | 策略第 8 条：**只在卡点问一次，短问短答**；Astra 不吃长输入/不长输出；没有 Astra 就忽略该条（**不引用** dual-plan-fusion 的长背景包 SOP） |
+
+> 逐条许可与"是否随仓库分发"另见 [`THIRD-PARTY.md`](THIRD-PARTY.md)。
 
 ## 8. 变更记录
 
