@@ -106,7 +106,7 @@ globalThis.fetch = (url, options) => {
 new Function("window", bundle)(win);
 
 check("注册了一个 bundle factory", registrations.length === 1, `实际 ${registrations.length}`);
-check("bundle id 正确", registrations[0]?.id === "dsh-client-effort-slider", String(registrations[0]?.id));
+check("bundle id 正确", registrations[0]?.id === "dsh-effort-slider", String(registrations[0]?.id));
 
 // 工厂会收到外壳的 require：React 走它（官方 seed 模块），其余请求直接抛错以暴露多余依赖
 const plugin = registrations[0].factory((specifier) => {
