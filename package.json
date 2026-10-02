@@ -31,10 +31,13 @@
     "build.mjs",
     "lib/client.js",
     "cordis.patch.yml",
+    "smoke-test.mjs",
+    "skills",
     "test",
     "preview",
     "README.md",
     "LICENSE",
+    "THIRD-PARTY.md",
     "TURBO-CONTRACT.md"
   ],
   "scripts": {
