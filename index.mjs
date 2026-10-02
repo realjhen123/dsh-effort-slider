@@ -1,5 +1,5 @@
 /**
- * dsh-client-effort-slider — 宿主半边
+ * dsh-effort-slider — 宿主半边
  *
  * 设计原则（每条都由真实事故或独立审查换来）：
  *  A. **绝不抛出、也绝不依赖任何可能缺失的东西**：`apply()` 里同步抛错会让该 entry 加载失败；
@@ -21,8 +21,8 @@ import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 import { createTurbo, TURBO_ENDPOINT } from "./turbo.mjs";
 
-const PACKAGE_ID = "dsh-client-effort-slider";
-const ENDPOINT = "/plugins/dsh-client-effort-slider/preferences";
+const PACKAGE_ID = "dsh-effort-slider";
+const ENDPOINT = "/plugins/dsh-effort-slider/preferences";
 /* 宿主端皮肤白名单 —— **必须和 client.js 里的 SKINS 完全一致**。
    宿主用它来校验 PATCH 请求：不在表里的皮肤会被归一化成 DEFAULT_SKIN，
    于是"选了流体、刷新一下又变回星云"（而且因为 touched 还是 false，
