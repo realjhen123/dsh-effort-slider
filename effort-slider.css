@@ -1,4 +1,4 @@
-/* dsh-client-effort-slider — 组件样式
+/* dsh-effort-slider — 组件样式
    设计要点：全部变量作用在 .es-root 内，不污染宿主；四套皮肤由 [data-skin] 切换；
    收起态是一枚发光核心（环上刻着当前档位），展开态是悬浮能量条。 */
 
