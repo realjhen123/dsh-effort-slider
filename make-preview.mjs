@@ -36,7 +36,7 @@ function panel(skin, index) {
   }).join("");
   const grid = [1, 2, 3].map((g) => `<i style="left:${((g / (EFFORTS.length - 1)) * 100).toFixed(3)}%"></i>`).join("");
   return `
-  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="${skin}"
+  <div class="es-root" data-effort-slider="dsh-effort-slider" data-skin="${skin}"
        data-open="1" data-snap="0" data-busy="0" data-failed="0"
        style="--pct:${pct.toFixed(3)}%;--ratio:${(index / (EFFORTS.length - 1)).toFixed(4)}">
     <div class="es-panel" role="dialog">
@@ -73,7 +73,7 @@ function panel(skin, index) {
 
 function collapsed(skin) {
   return `
-  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="${skin}"
+  <div class="es-root" data-effort-slider="dsh-effort-slider" data-skin="${skin}"
        data-open="0" data-snap="0" data-busy="0" data-failed="0" style="--pct:60%;--ratio:0.6">
     <button type="button" class="es-pill">
       <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
