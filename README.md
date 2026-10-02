@@ -73,8 +73,8 @@ dsh plugin add github:yuhub233/dsh-effort-slider
 - 面板是绝对定位的浮层：滑条 + 刻度 + 读数 + 闪电开关；收起态只有档位名一个子元素。
 
 **宿主半边**（`index.mjs`）
-- `GET/POST /plugins/dsh-client-effort-slider/preferences`：皮肤偏好 + 客户端心跳（启动各阶段上报，用于"界面到底有没有出来"的判定）。
-- `GET/PATCH /plugins/dsh-client-effort-slider/turbo`：闪电/Ultra 开关、车队 tok/s 快照、当前生效的策略正文。
+- `GET/POST /plugins/dsh-effort-slider/preferences`：皮肤偏好 + 客户端心跳（启动各阶段上报，用于"界面到底有没有出来"的判定）。
+- `GET/PATCH /plugins/dsh-effort-slider/turbo`：闪电/Ultra 开关、车队 tok/s 快照、当前生效的策略正文。
 - `inject.mjs` 走 **`agent/pre-step` 瀑布**把策略文本注入到当前这一步的模型请求，三条纪律：
   1. 先 `await next()`，在框架自己的决定之上追加，绝不吞掉别人的决定；
   2. **按会话 id 精确过滤** —— 子代理会继承父作用域，所以"按作用域注册"是错的，必须按 id；
@@ -116,14 +116,26 @@ turbo.mjs            turbo 路由 + 会话状态 + 车队计量接线
 metrics.mjs          纯函数式的 tok/s 统计
 test/                离线测试
 TURBO-CONTRACT.md    接口冻结单（档位模型、端点契约、注入纪律、实证）
+THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许可、用在哪）
 ```
 
 ## 已知限制
 
-- **运行期标识仍是 `dsh-client-effort-slider`**：端点路径（`/plugins/dsh-client-effort-slider/...`）、根节点的 `data-effort-slider` 属性值和日志前缀都用这个名字，与仓库名 `dsh-effort-slider` 不同。它是历史 id，改它需要同步宿主装配配置，因此保留以兼容已安装的实例。
+- **包名 = 运行期标识**：`dsh-effort-slider` 同时是 npm 包名、客户端 bundle 的注册 id（`WebBootEntry.id`）、端点前缀（`/plugins/dsh-effort-slider/...`）和 `data-effort-slider` 属性值。**改这个名字要四处同步**：`package.json` 的 `name`、插件自带 `cordis.patch.yml` 的 `name`、profile 的 `dsh.profile.bundles` 条目、以及 `profiles/<profile>/node_modules` 下指向插件目录的 junction。任何一处不同步，DSH 会在 profile 装配阶段直接抛 `package identity is invalid for <name>` 起不来（这是本项目真实踩过的坑）。
 - 皮肤 `nebula` 已下线但代码保留；`DEFAULT_SKIN` 与皮肤白名单（`client.js`、`index.mjs` 各一份）必须同时改，测试会检查这一致性。
 - Ultra 扫光在高 tok/s 时观感偏张扬；闪电的渐变流动依赖 CSS `@property`，不支持的宿主上会退化成静态渐变。
 - 本仓库里的截图取自验证台（真实产物 + 真 React），界面外的灰色说明文字是测试台的标注，不是插件本身。
+
+## 出处与致谢
+
+插件的**代码**是自己写的，但交互设计与提示词策略明确建立在这几件公开成果之上（逐条对照、许可与用法见 [`THIRD-PARTY.md`](THIRD-PARTY.md)）：
+
+- **[`obra/superpowers`](https://github.com/obra/superpowers)**（MIT）——闪电模式的派活与集成纪律、Ultra 档的证据与根因纪律，来自它的 4 个 skill（`dispatching-parallel-agents` / `subagent-driven-development` / `verification-before-completion` / `systematic-debugging`）。这些 skill **不随本仓库分发**，DSH 上不存在时策略要求模型跳过。
+- **[Anthropic：How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)**——委派契约的四要素、按复杂度分档的规模阶梯、"多智能体约 15× token"这条成本事实、子代理把产物写进文件只回传指针。
+- **[Feather Icons](https://github.com/feathericons/feather) 的 `zap`**（MIT）——闪电开关的 SVG 路径。
+- **[React](https://github.com/facebook/react)**（MIT）——peer dependency，从宿主的模块加载器取，不打包。
+
+本插件**零运行时依赖**、不联网、无遥测，仓库里不含任何第三方源码。
 
 ## English
 
@@ -135,4 +147,4 @@ TURBO-CONTRACT.md    接口冻结单（档位模型、端点契约、注入纪�
 
 The plugin ships a built `lib/client.js`, so it works right after installation (`dsh plugin add github:yuhub233/dsh-effort-slider`, DSH Desktop ≥ 2.0.9). It stores one JSON file locally and makes no network requests. Prompt-injection is scoped to a single session id, and the injected text is only re-sent when it actually changes.
 
-MIT licensed. The prompt-engineering ideas borrow from Anthropic's public multi-agent writing and the community `superpowers` skill set (MIT); those skills are **not** bundled here.
+MIT licensed. The prompt-engineering ideas borrow from Anthropic's public multi-agent writing and the community [`superpowers`](https://github.com/obra/superpowers) skill set (MIT); the bolt outline is Feather Icons' `zap` (MIT). Those skills are **not** bundled here — see [`THIRD-PARTY.md`](THIRD-PARTY.md) for the full, itemised credits.
