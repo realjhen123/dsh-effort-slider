@@ -1,16 +1,16 @@
 /**
- * dsh-client-effort-slider — 浏览器半边（源码，由宿主读入并包进 loader 工厂）
+ * dsh-effort-slider — 浏览器半边（源码，由宿主读入并包进 loader 工厂）
  *
  * 自绘组件，不套用任何现成 UI 框架：
  *  · 收起态 = 输入框里的一枚发光核心（外环刻着当前档位进度）
  *  · 展开态 = 悬浮能量条 + 档位刻度 + 读数 + 皮肤切换
  *  · 数据   = ctx.modelDirectories.directoryFor(sessionId).store（真实档位、真实写回）
- *  · 偏好   = 宿主端点 /plugins/dsh-client-effort-slider/preferences
+ *  · 偏好   = 宿主端点 /plugins/dsh-effort-slider/preferences
  */
 (function () {
   "use strict";
 
-  var PACKAGE_ID = "dsh-client-effort-slider";
+  var PACKAGE_ID = "dsh-effort-slider";
   // 默认皮肤 = DEFAULT_SKIN（当前 fluid）；数组顺序即界面上的按钮顺序。
   // nebula 暂时下线（2026-10-01）：只把它从数组注释掉，SKIN_LABELS 与全部 CSS 规则都保留，
   // 想恢复就把 "nebula" 放回数组即可（DEFAULT_SKIN 想改回它也只需改这一处）。
@@ -26,7 +26,7 @@
     return Object.prototype.hasOwnProperty.call(SKIN_LABELS, skin) ? SKIN_LABELS[skin] : String(skin);
   }
   var STORAGE_KEY = "dsh-effort-slider.skin";
-  var ENDPOINT = "/plugins/dsh-client-effort-slider/preferences";
+  var ENDPOINT = "/plugins/dsh-effort-slider/preferences";
   var FALLBACK_NAMES = ["轻", "中", "重", "极", "极重", "满"];
   /** 写回失败时的统一文案：面板描述行 + 收起态提示都用它，避免两处文案漂移。 */
   var FAIL_HINT = "切换失败，已回到原档位。";
@@ -39,7 +39,7 @@
    *  · PATCH body { session, lightning?, ultra? } → { ok, lightning, ultra }
    * 全部 best-effort：404 / 网络失败 / 非 JSON 一律当作「没有数据」，绝不冒泡。
    */
-  var TURBO_ENDPOINT = "/plugins/dsh-client-effort-slider/turbo";
+  var TURBO_ENDPOINT = "/plugins/dsh-effort-slider/turbo";
   /** 读数轮询周期。只在「闪电开启 或 rate > 0」时跑，且页面隐藏时整轮跳过。 */
   var TURBO_POLL_MS = 1000;
   /** 连续失败到这个次数就彻底停止轮询（宿主没有这条路由时不要一直打请求）。 */
