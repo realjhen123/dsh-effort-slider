@@ -102,8 +102,14 @@ function writePreference(file, skin) {
   writeChain = writeChain.then(async () => {
     const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
     try {
+      // 读-改-写：同一个文件里还住着 sessions（ULTRA/闪电的会话状态），
+      // 整体覆写成 `{ skin }` 会把它们一次抹掉。
+      // 2026-10-02 真实事故：用户改皮肤 → 文件只剩 `{ skin: "fluid" }` → 7 个会话的
+      // ultra/lightning 全部丢失（运行中的宿主还靠内存撑着，重启就彻底没了）。
+      const current = readFileState(file);
+      const next = { ...current, skin };
       mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(temp, `${JSON.stringify({ skin }, null, 2)}\n`, "utf8");
+      writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
       renameSync(temp, file);
       return true;
     } catch (error) {
