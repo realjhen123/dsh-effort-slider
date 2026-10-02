@@ -21,7 +21,7 @@ import { policyText } from "./policy.mjs";
 import { createFleetMeter } from "./metrics.mjs";
 import { createPolicyInjector } from "./inject.mjs";
 
-export const TURBO_ENDPOINT = "/plugins/dsh-client-effort-slider/turbo";
+export const TURBO_ENDPOINT = "/plugins/dsh-effort-slider/turbo";
 
 /** 模式关闭时补的一句，避免历史里那条策略继续生效（引擎"变了才注入"的同款用法）。 */
 export const OFF_NOTICE =
