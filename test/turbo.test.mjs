@@ -16,7 +16,7 @@
  * 运行：`node test/turbo.test.mjs`（cwd 无所谓），全部通过退出码 0。
  */
 import assert from "node:assert/strict";
-import { createTurbo, OFF_NOTICE } from "../turbo.mjs";
+import { createTurbo, OFF_NOTICE, TURBO_ENDPOINT } from "../turbo.mjs";
 import { createPolicyInjector } from "../inject.mjs";
 import { policyText } from "../policy.mjs";
 
@@ -36,19 +36,46 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 /* ── 假宿主 ─────────────────────────────────────────────────────────────── */
 
-function fakeCtx({ descendants = {} } = {}) {
+function fakeCtx({ descendants = {}, liveSessions = [] } = {}) {
   const listeners = new Map();
   const routes = [];
   const services = new Map();
+  const live = new Map(liveSessions.map((session) => [session.id, session]));
+  for (const [rootId, children] of Object.entries(descendants)) {
+    live.set(rootId, { id: rootId, header: {} });
+    for (const id of children) live.set(id, { id, header: { parentSession: rootId, origin: "subagent" } });
+  }
+  const reads = { lists: 0, descendants: 0, history: 0 };
   let pendingPayload = null;
   services.set("subagents", {
-    async listDescendants(rootId) {
-      return (descendants[rootId] ?? []).map((id) => ({ kind: "child", id, activity: "running", hasChildren: false, mode: "continuable", label: id }));
+    async listDescendants() {
+      reads.descendants += 1;
+      throw new Error("持久化后代扫描不能用于实时计量");
     },
+  });
+  services.set("sessions", {
+    list() { reads.lists += 1; return [...live.values()]; },
+    get(id) { return live.get(id); },
+  });
+  services.set("sessionQuery", {
+    async listSessions() { reads.history += 1; throw new Error("不能扫描会话历史"); },
   });
   return {
     listeners,
     routes,
+    reads,
+    emit(name, ...args) {
+      for (const handler of [...(listeners.get(name) ?? [])]) handler(...args);
+    },
+    createSession(session, announce = true) {
+      live.set(session.id, session);
+      if (announce) this.emit("session/created", session);
+    },
+    disposeSession(id) {
+      const session = live.get(id);
+      live.delete(id);
+      this.emit("session/disposed", session);
+    },
     /** 生产环境由 index.mjs 传进来的 readJson；这里是等价的替身。 */
     readJson: async () => ({ ok: true, value: pendingPayload }),
     setPayload(value) { pendingPayload = value; },
@@ -230,7 +257,7 @@ async function turboSuite() {
   }
 
   // [6] 只有后代（成员）计入读数
-  await tick();                                   // 等成员集刷新
+  await tick();
   {
     const stream = (agentId, text) => {
       for (const handler of ctx.listeners.get("agent/assistant-stream") ?? []) {
@@ -261,9 +288,66 @@ async function turboSuite() {
   ok(ctx.routes.length === 0, "[6] dispose 之后路由已注销");
 }
 
+async function lifecycleSuite() {
+  console.log("\n[7] 运行中会话索引：不扫描持久化记录，生命周期立即生效");
+  const root = "session-life-root";
+  const fork = { id: "session-life-fork", header: { parentSession: root } };
+  const child = { id: "session-life-child", header: { origin: "subagent", parentSession: fork.id } };
+  const grandchild = { id: "session-life-grandchild", header: { origin: "subagent", parentSession: child.id } };
+  const unrelated = { id: "session-life-unrelated", header: { origin: "subagent", parentSession: "session-other-root" } };
+  const ctx = fakeCtx({ liveSessions: [{ id: root, header: {} }, fork, child, grandchild, unrelated] });
+  const turbo = createTurbo(ctx, {
+    readSessions: () => ({ [root]: { lightning: true } }),
+    writeSessions: async () => true,
+    readJson: ctx.readJson,
+  });
+  ok(turbo.sample().agents === 2, "[7] 穿过普通 fork 查祖先，只计当前 root 的子代理");
+  ok(ctx.reads.lists === 1, "[7] 启动时只读取一次内存中的运行会话");
+
+  // one-shot 与 continuable 都由 origin 判定，不回放历史读取 descriptor。
+  const oneShot = {
+    id: "session-life-oneshot",
+    header: { origin: "subagent", parentSession: root },
+    snapshotEvents() { throw new Error("不得回放历史"); },
+  };
+  ctx.createSession(oneShot);
+  ok(turbo.sample().agents === 3, "[7] 新子代理立即进入，包含 one-shot，不读取历史");
+  ctx.disposeSession(child.id);
+  ok(turbo.sample().agents === 2, "[7] 父代理退场后，其仍在运行的孙代理继续计入");
+  ctx.emit("agent/assistant-stream", { agent: { id: child.id, session: child }, frame: { type: "chunk", chunk: { type: "text-delta", text: "x".repeat(400) } } });
+  ok(turbo.sample().total === 0 && turbo.sample().agents === 2, "[7] 已退场代理的迟到流帧不能重新加入");
+
+  // 漏掉 create（例如服务初始化晚于插件）仍可从流载荷自愈。
+  const late = { id: "session-life-late", header: { origin: "subagent", parentSession: root } };
+  ctx.createSession(late, false);
+  ctx.emit("agent/assistant-stream", { agent: { id: late.id, session: late }, frame: { type: "chunk", chunk: { type: "text-delta", text: "x".repeat(40) } } });
+  ok(turbo.sample().agents === 3 && turbo.sample().total === 10, "[7] 流事件可补齐新会话元数据，首个 chunk 也能计量");
+  const cycle = { id: "session-life-cycle", header: { origin: "subagent", parentSession: "session-life-cycle" } };
+  ctx.createSession(cycle);
+  ok(turbo.sample().agents === 3, "[7] 环形祖先链被忽略，不阻塞生命周期事件");
+  await callRoute(ctx, TURBO_ENDPOINT, { method: "PATCH", payload: { session: root, lightning: false } });
+  ok(turbo.sample().agents === 0, "[7] 关闭模式立即摘除成员");
+  await callRoute(ctx, TURBO_ENDPOINT, { method: "PATCH", payload: { session: root, lightning: true } });
+  ok(turbo.sample().agents === 3 && ctx.reads.lists === 1, "[7] 重新开启只使用内存索引，不重复列会话");
+  for (let i = 0; i < 2100; i += 1) ctx.createSession({ id: `session-idle-${i}`, header: {} });
+  const beforeLateChunk = turbo.sample();
+  ctx.emit("agent/assistant-stream", { agent: { id: child.id, session: child }, frame: { type: "chunk", chunk: { type: "text-delta", text: "x".repeat(400) } } });
+  ok(turbo.sample().agents === beforeLateChunk.agents && turbo.sample().total === beforeLateChunk.total,
+    "[7] 索引达到上限后，迟到的已退场对象也不能重新加入");
+  ok(ctx.reads.descendants === 0 && ctx.reads.history === 0, "[7] 全流程没有持久化查询 / listDescendants 调用");
+
+  const captured = [...(ctx.listeners.get("session/created") ?? [])];
+  turbo.dispose();
+  turbo.dispose();
+  for (const handler of captured) handler(oneShot);
+  ok([...ctx.listeners.values()].every((handlers) => handlers.length === 0), "[7] dispose 移除所有事件订阅");
+  ok(turbo.sample().agents === 0 && turbo.sample().total === 0, "[7] dispose 清除计量状态，迟到回调不起作用");
+}
+
 async function main() {
   await injectionSuite();
   await turboSuite();
+  await lifecycleSuite();
   console.log(`\n检查条数: ${checks}，通过: ${checks - failures}，失败: ${failures}`);
   if (failures > 0) {
     console.log("有失败 ❌");
