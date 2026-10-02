@@ -56,6 +56,7 @@ export function createFleetMeter(options = {}) // → meter
 - `rate` = 最近 window Ms 内 **(生成 + 输入)** token 速率（整数 tok/s）—— 头条大数字
 - `total`= 累计 token（生成 + 输入）—— 也是大数字；`agents` = 成员数
 - token 估算：CJK 码点按 1 token/字，其余按 4 字符/token 向上取整
+- 成员来自运行中的 `SessionStore` 和 `session/created` / `session/disposed` 事件；沿 `header.parentSession` 判定归属，只计 `header.origin === "subagent"`（包括 one-shot）。普通 fork 可作为祖先链中间节点，本身不计入。已归档会话不计入成员数，不扫描持久化会话文件。
 - 输入 token 取 `usage` 帧：`max(0, inputTokens - cacheReadTokens)`（`includeCacheReads` 可关掉该扣减）
 - 累计值取 **每 agent 的 `max(增量估算, Σ usage.outputTokens)`**：实时会长、调用结束被精确值校准
 - **无定时器、无 I/O、无全局状态** —— 便于离线测试
@@ -124,6 +125,7 @@ export function createPolicyInjector(ctx, { log, resolve })
 - 初版：锁定 §1 决策，冻结 §3/§4 接口。
 - 补 §9：asar 源码核对结果（注入会落盘、每个 step 都会 append、变了才注入）；
   §3.3 的 injector 签名按实证改写。
+- 2026-10-02：成员统计改用有界内存索引和生命周期事件，取消每两秒的持久化后代扫描；客户端补齐 remote 依赖，并清理切换 / 卸载后的查询、轮询与目录订阅。
 
 ## 9. 实证：注入到底发生了什么（app.asar 源码核对）
 
