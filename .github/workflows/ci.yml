@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: node ${{ matrix.node }} · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ["22", "24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 这个插件没有任何运行时/开发时依赖（node_modules 为空），所以不需要 npm install。
+      - name: Rebuild the client bundle
+        run: node build.mjs
+
+      # build.mjs 是幂等的：内容一致就不写盘。若这里报 diff，说明提交的 lib/client.js
+      # 与源码（client.js + effort-slider.css）不同步 —— 那正是本插件最容易出的事故。
+      - name: Fail if the committed bundle is stale
+        shell: bash
+        run: |
+          if ! git diff --exit-code -- lib/client.js; then
+            echo "::error::lib/client.js 与源码不同步，请本地跑 node build.mjs 后提交产物。"
+            exit 1
+          fi
+
+      # 直接调 node、并且走 bash：Windows runner 的 pwsh 既会被执行策略挡住 npm.ps1，
+      # 又只看最后一条命令的退出码（前一条挂了也会当成成功）。bash 的 -e 才是我们要的。
+      - name: Run the test suite
+        shell: bash
+        run: |
+          node smoke-test.mjs
+          node test/metrics.test.mjs
+          node test/turbo.test.mjs
+          node test/host.test.mjs
+          node test/fluid.test.mjs
