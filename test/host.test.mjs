@@ -136,8 +136,8 @@ console.log("[1] 声明与 apply 安全（未声明 inject 是整棵树失败的
     JSON.stringify(mod.inject));
   check("严格注入代理下 apply() 不抛错", thrown === null, String(thrown));
   check("注册了偏好端点与 turbo 端点",
-    routes.some((r) => r.path === "/plugins/dsh-client-effort-slider/preferences") &&
-    routes.some((r) => r.path === "/plugins/dsh-client-effort-slider/turbo"),
+    routes.some((r) => r.path === "/plugins/dsh-effort-slider/preferences") &&
+    routes.some((r) => r.path === "/plugins/dsh-effort-slider/turbo"),
     `实际 ${routes.length} 条：${routes.map((r) => r.path).join(", ")}`);
   check("日志走 ctx.logger（console 不进日志文件）", logs.info.some((l) => l.includes("已就绪")),
     JSON.stringify(logs.info.slice(0, 2)));
