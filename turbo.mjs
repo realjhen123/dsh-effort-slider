@@ -29,7 +29,8 @@ export const OFF_NOTICE =
 
 const MAX_TRACKED_SESSIONS = 40;   // 状态文件是给人看的，别无限长
 const MAX_MEMBERS = 96;            // 单次统计的舰队规模上限
-const MEMBER_REFRESH_MS = 2000;    // 子代理成员集刷新周期（比事件驱动简单且够快）
+const MAX_SESSION_HEADERS = 2048;  // 只保存小型祖先索引，不保留 Session / 会话历史
+const MAX_ANCESTOR_DEPTH = 128;    // 异常祖先链不能阻塞宿主事件分发
 
 function isSessionId(value) {
   return typeof value === "string" && /^session-[A-Za-z0-9._-]{4,120}$/.test(value);
@@ -54,8 +55,7 @@ export function createTurbo(ctx, options = {}) {
   let tracked = new Set();          // 需要统计子代理的会话（当前有模式开的）
   const everOn = new Set();         // 曾经开过（用于补"模式已关闭"那句）
   let members = new Set();
-  let refreshTimer = null;
-  let refreshing = false;
+  const sessionHeaders = new Map();
   let disposed = false;
 
   const meter = createFleetMeter({});
@@ -111,7 +111,16 @@ export function createTurbo(ctx, options = {}) {
         const frame = payload?.frame;
         if (frame?.type !== "chunk") return;                       // 只要 chunk 帧
         const agentId = payload?.agent?.id;
-        if (typeof agentId !== "string" || !members.has(agentId)) return;
+        if (typeof agentId !== "string") return;
+        // 服务暂不可用 / 插件晚加载时，可从流事件补齐当前 Session 的元数据。
+        // 已收到 disposed 的会话不能由迟到的流帧重新加入。
+        if (!sessionHeaders.has(agentId) && tracked.size > 0) {
+          const live = liveSession(agentId);
+          // 索引淘汰后也以宿主的 live store 为准；流载荷可能仍持有已退场对象。
+          const session = live === undefined ? payload.agent.session : live;
+          if (rememberSession(session)) refreshMembers();
+        }
+        if (!members.has(agentId)) return;
         meter.ingest(agentId, frame.chunk, typeof frame.time === "number" ? frame.time : undefined);
       } catch { /* 计量异常绝不影响会话 */ }
     });
@@ -122,44 +131,98 @@ export function createTurbo(ctx, options = {}) {
 
   /* ── 2. 成员集：被跟踪会话的后代 ─────────────────────────────────────── */
 
-  async function refreshMembers() {
-    if (disposed || refreshing) return;
-    refreshing = true;
+  function liveSession(id) {
     try {
-      const subagents = typeof ctx.get === "function" ? ctx.get("subagents") : undefined;
-      const next = new Set();
+      const store = typeof ctx.get === "function" ? ctx.get("sessions") : undefined;
+      if (typeof store?.get !== "function") return undefined;
+      try { return store.get(id) ?? null; } catch { return null; }
+    } catch { return undefined; }
+  }
+
+  function rememberSession(payload) {
+    const session = payload?.session ?? payload;
+    if (typeof session?.id !== "string" || !session.header) return false;
+    const header = session.header;
+    sessionHeaders.set(session.id, {
+      id: session.id,
+      parent: typeof header.parentSession === "string" ? header.parentSession : null,
+      subagent: header.origin === "subagent",
+      live: true,
+    });
+    while (sessionHeaders.size > MAX_SESSION_HEADERS) {
+      sessionHeaders.delete(sessionHeaders.keys().next().value);
+    }
+    return true;
+  }
+
+  function belongsToTrackedRoot(record) {
+    if (!record.live || !record.subagent) return false;
+    const seen = new Set([record.id]);
+    let parent = record.parent;
+    for (let depth = 0; parent && depth < MAX_ANCESTOR_DEPTH; depth += 1) {
+      if (seen.has(parent)) return false;
+      if (tracked.has(parent)) return true;
+      seen.add(parent);
+      let ancestor = sessionHeaders.get(parent);
+      if (!ancestor) {
+        rememberSession(liveSession(parent)); // 仅查询内存 SessionStore，不读持久化记录
+        ancestor = sessionHeaders.get(parent);
+      }
+      if (!ancestor) return false;
+      parent = ancestor.parent;
+    }
+    return false;
+  }
+
+  function refreshMembers() {
+    if (disposed) return;
+    try {
       tracked = new Set(Object.keys(sessions).filter((id) => anyOn(id)));
-      if (subagents && typeof subagents.listDescendants === "function") {
-        for (const rootId of tracked) {
-          if (next.size >= MAX_MEMBERS) break;
-          try {
-            const list = await subagents.listDescendants(rootId);
-            if (!Array.isArray(list)) continue;
-            for (const entry of list) {
-              if (next.size >= MAX_MEMBERS) break;
-              if (entry && entry.kind === "child" && typeof entry.id === "string") next.add(entry.id);
-            }
-          } catch { /* 某个会话列不出来就跳过它 */ }
-        }
+      const next = new Set();
+      // 固定快照：补齐祖先时可能触发索引淘汰，不能延长迭代。
+      for (const record of tracked.size > 0 ? [...sessionHeaders.values()] : []) {
+        if (next.size >= MAX_MEMBERS) break;
+        if (belongsToTrackedRoot(record)) next.add(record.id);
       }
       members = next;
-      meter.setMembers(next);
+      meter.setMembers(members);
     } catch (error) {
       log(`刷新子代理成员集失败（本次按空集处理）：${String(error)}`);
       members = new Set();
       try { meter.setMembers(members); } catch { /* 忽略 */ }
-    } finally {
-      refreshing = false;
     }
   }
 
-  try {
-    void refreshMembers();
-    refreshTimer = setInterval(() => { void refreshMembers(); }, MEMBER_REFRESH_MS);
-    if (typeof refreshTimer.unref === "function") refreshTimer.unref();
-  } catch (error) {
-    log(`启动成员集刷新失败：${String(error)}`);
+  function subscribe(name, handler) {
+    try {
+      const off = ctx.on(name, (...args) => {
+        if (disposed) return;
+        try { handler(...args); } catch { /* 计量不能影响宿主生命周期 */ }
+      });
+      if (typeof off === "function") disposers.push(off);
+    } catch (error) { log(`订阅 ${name} 失败：${String(error)}`); }
   }
+
+  subscribe("session/created", (session) => {
+    if (rememberSession(session)) refreshMembers();
+  });
+  subscribe("session/disposed", (payload) => {
+    const session = payload?.session ?? payload;
+    const record = sessionHeaders.get(session?.id);
+    if (!record) return;
+    // 父会话先退场时仍保留小型祖先链，让继续运行的孙代理可归属原会话。
+    record.live = false;
+    refreshMembers();
+  });
+
+  try {
+    const store = typeof ctx.get === "function" ? ctx.get("sessions") : undefined;
+    const live = typeof store?.list === "function" ? store.list() : [];
+    if (Array.isArray(live)) for (const session of live) rememberSession(session);
+  } catch (error) {
+    log(`读取运行中会话失败（等待生命周期 / 流事件）：${String(error)}`);
+  }
+  refreshMembers();
 
   /* ── 3. 路由 ─────────────────────────────────────────────────────────── */
 
@@ -227,8 +290,8 @@ export function createTurbo(ctx, options = {}) {
             if (keys.length > MAX_TRACKED_SESSIONS) {
               for (const key of keys.slice(0, keys.length - MAX_TRACKED_SESSIONS)) delete sessions[key];
             }
+            refreshMembers();
             const persisted = await writeSessions(sessions);
-            void refreshMembers();
             log(`turbo 状态更新：lightning=${nextState.lightning} ultra=${nextState.ultra}（持久化：${persisted ? "成功" : "失败"}）`);
             response.writeHead(200, headers);
             response.end(JSON.stringify({ ok: true, ...nextState, persisted }));
@@ -256,13 +319,17 @@ export function createTurbo(ctx, options = {}) {
     sample: () => meter.sample(),
     stateOf,
     dispose() {
+      if (disposed) return;
       disposed = true;
-      try { if (refreshTimer !== null) clearInterval(refreshTimer); } catch { /* 忽略 */ }
-      refreshTimer = null;
       try { injector.dispose(); } catch { /* 忽略 */ }
       for (const dispose of disposers.splice(0)) {
         try { dispose?.(); } catch { /* 卸载异常不冒泡 */ }
       }
+      sessionHeaders.clear();
+      tracked.clear();
+      members.clear();
+      everOn.clear();
+      meter.dispose();
     },
   };
 }
