@@ -112,6 +112,7 @@ node test/host.test.mjs     # host: endpoints, preference file, heartbeat, excep
 node test/turbo.test.mjs    # turbo routes + policy injection (integration against a fake ctx)
 node test/metrics.test.mjs  # tok/s metering (pure functions, including randomized stress)
 node test/fluid.test.mjs    # fluid engine: density / column coverage / colour semantics / top-level ramp
+node test/client-lifecycle.test.mjs # request deadlines, unmount cleanup, session races and subscriptions
 ```
 
 The skin list and the default skin used by the tests are read out of the `client.js` source rather than hard-coded — when a skin is retired or the default changes, the tests follow the source.
@@ -135,6 +136,9 @@ THIRD-PARTY.md       provenance and credits (which public work was reused, under
 ```
 
 ## Known limitations
+
+- Live fleet metrics use a bounded in-memory session index and lifecycle events instead of polling session history. Archived subagents are excluded from the member count. Updated plugin files take effect when the host next loads the plugin; running processes keep their loaded version.
+- Turbo requests wait at most five seconds. If model selection has not returned after ten seconds, the slider releases its busy state and reports failure without cancelling the host operation. A later host success is still reflected by the actual directory state.
 
 - **Package name = runtime identity**: `dsh-effort-slider` is at once the npm package name, the client bundle's registration id (`WebBootEntry.id`), the endpoint prefix (`/plugins/dsh-effort-slider/...`) and the `data-effort-slider` attribute value. **Renaming it requires four places to stay in sync**: `name` in `package.json`, `name` in the plugin's own `cordis.patch.yml`, the profile's `dsh.profile.bundles` entry, and the junction under `profiles/<profile>/node_modules` pointing at the plugin directory. If any one of them drifts, DSH throws `package identity is invalid for <name>` during profile assembly and refuses to start (a pitfall this project actually hit).
 - The `nebula` skin is retired but its code remains; `DEFAULT_SKIN` and the skin whitelist (one copy each in `client.js` and `index.mjs`) have to be changed together, and the tests check that consistency.
