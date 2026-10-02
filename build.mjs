@@ -132,8 +132,14 @@ function materializeArtifact(artifact, filename) {
 
 /* ────────────────────── 1. 读源码 ────────────────────── */
 
-const source = readFileSync(here("./client.js"), "utf8");
-const css = readFileSync(here("./effort-slider.css"), "utf8");
+/* 行尾归一：CI 的 Windows runner 用 core.autocrlf=true 检出（工作区是 CRLF），而
+   effort-slider.css 的原文会被整段嵌进产物 —— 不归一的话同一份源码会在 Windows 上
+   构建出与仓库里那份**不同**的产物，「产物是否过期」那一步必然变红。
+   仓库里另有一份 .gitattributes 强制 LF，这里是第二道保险（防本机 autocrlf=true）。 */
+const toLf = (text) => text.replace(/\r\n?/g, "\n");
+
+const source = toLf(readFileSync(here("./client.js"), "utf8"));
+const css = toLf(readFileSync(here("./effort-slider.css"), "utf8"));
 
 /* ────────────────────── 2. 源码前置断言 ────────────────────── */
 /* 缺任何一条，产物都会「构建成功但界面什么都没有」，所以这里必须炸。 */
@@ -337,7 +343,7 @@ const GUARD = { tested: false, loud: false };
 const SOURCE_AT_READ = { client: sha(source), css: sha(css) };
 function readSourceNow() {
   try {
-    return { client: sha(readFileSync(here("./client.js"), "utf8")), css: sha(readFileSync(here("./effort-slider.css"), "utf8")) };
+    return { client: sha(toLf(readFileSync(here("./client.js"), "utf8"))), css: sha(toLf(readFileSync(here("./effort-slider.css"), "utf8"))) };
   } catch (error) {
     return { client: `read-error: ${String(error && error.message ? error.message : error)}`, css: "" };
   }
@@ -351,7 +357,7 @@ assert(
 );
 
 mkdirSync(LIB_DIR, { recursive: true });
-const previous = existsSync(OUT_FILE) ? readFileSync(OUT_FILE, "utf8") : null;
+const previous = existsSync(OUT_FILE) ? toLf(readFileSync(OUT_FILE, "utf8")) : null;
 const previousBytes = previous === null ? 0 : bytes(previous);
 
 let writeState;
