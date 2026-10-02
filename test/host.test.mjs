@@ -210,6 +210,36 @@ console.log("[2] 偏好文件读写（曾因 settings schema 抛错而永不落�
   await handler(makeRequest({ method: "GET" }), res);
   check("写后 GET 读回 chrome", JSON.parse(res.body).skin === "chrome", res.body);
 
+  // 回归（2026-10-02 事故）：同一个文件里还住着 sessions（ULTRA/闪电的会话状态），
+  // 写皮肤时整体覆写成 `{ skin }` 会把它们一次抹掉 —— 换一次皮肤，全部会话状态没了。
+  writeFileSync(file, `${JSON.stringify({
+    skin: "chrome",
+    sessions: {
+      "session-keep-on": { lightning: true, ultra: false },
+      "session-keep-off": { lightning: false, ultra: true },
+    },
+  }, null, 2)}\n`, "utf8");
+  res = makeResponse();
+  await handler(makeRequest({ method: "POST", body: { skin: "holo" } }), res);
+  const afterSkin = JSON.parse(readFileSync(file, "utf8"));
+  check("写皮肤不会抹掉 sessions", afterSkin.skin === "holo" &&
+    afterSkin.sessions?.["session-keep-on"]?.lightning === true &&
+    afterSkin.sessions?.["session-keep-off"]?.ultra === true, JSON.stringify(afterSkin));
+
+  // 反向：会话状态写入也不能抹掉皮肤
+  writeFileSync(file, `${JSON.stringify({ skin: "chrome" }, null, 2)}\n`, "utf8");
+  const turboRoute = routes.find((r) => String(r.path).endsWith("/turbo"));
+  check("bootstrap 里注册了 turbo 路由（反向断言的前置）", Boolean(turboRoute),
+    routes.map((r) => r.path).join(", "));
+  if (turboRoute) {
+    res = makeResponse();
+    await turboRoute.handler(makeRequest({ method: "PATCH", body: { session: "session-keep-on", ultra: true } }), res);
+    const afterTurbo = JSON.parse(readFileSync(file, "utf8"));
+    check("/turbo 写会话状态不会抹掉皮肤",
+      afterTurbo.skin === "chrome" && afterTurbo.sessions?.["session-keep-on"]?.ultra === true,
+      JSON.stringify(afterTurbo));
+  }
+
   res = makeResponse();
   await handler(makeRequest({ method: "POST", body: { skin: "不存在的皮肤" } }), res);
   check("非法皮肤被归一化", JSON.parse(res.body).skin === DEFAULT_SKIN, res.body);
