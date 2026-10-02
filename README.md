@@ -1,5 +1,7 @@
 # dsh-effort-slider
 
+**简体中文** | [English](#english)
+
 > 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）用的**科幻风推理等级滑条**：输入框里一枚发光核心，点开是一条悬浮能量滑条；在最高档之上还有一档 **Ultra**，以及一个把活全部派给子代理的**闪电模式**，旁边实时显示车队 tok/s。
 
 <p align="center"><img src="docs/images/panel-ultra.png" alt="Ultra 档位面板" width="620"></p>
@@ -151,6 +153,8 @@ THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许�
 本插件**零运行时依赖**、不联网、无遥测。除上面那 4 个 skill（第三方源码，原样打包在 `skills/`，可直接不装）之外，仓库里不含其他第三方源码。
 
 ## English
+
+[简体中文](#dsh-effort-slider) | **English**
 
 **dsh-effort-slider** — a sci-fi reasoning-effort slider for DeepSeek Harness (DSH). It replaces the plain effort selector with an animated energy bar, and adds three things on top:
 
