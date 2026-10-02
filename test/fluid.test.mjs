@@ -15,7 +15,7 @@
  *  4. getContext 返回 null / 根本没有 getContext 时**不抛异常**（皮肤仍然可用，只是没有动画）；
  *  5. 量到 0 尺寸（display:none 时量不到）不写画布尺寸、不抛异常、不做除零，
  *     尺寸恢复后能正常起来；
- *  6. 皮肤按钮的 title 全部有中文名（SKIN_LABELS 不再漏项），fluid 排在最后。
+ *  6. 皮肤按钮的 title 全部有英文名（SKIN_LABELS 不再漏项），fluid 排在最后。
  *
  * 只依赖 node 内置模块，不引入任何第三方包，也不改动任何现有测试。
  */
@@ -716,9 +716,9 @@ check("皮肤是 fluid 且展开后 rAF 已排上一帧", rafCalls === rafBefore
 check("没有未捕获的 effect 异常", hookErrors.length === 0, String(hookErrors[0]));
 check(`皮肤按钮与在售皮肤一一对应（${AVAILABLE_SKINS.join("/")}）`,
   JSON.stringify(findAll(root, "es-skin").map((node) => node.props["aria-label"])) ===
-    JSON.stringify(AVAILABLE_SKINS.map((s) => "皮肤：" + s)),
+    JSON.stringify(AVAILABLE_SKINS.map((s) => "Skin: " + s)),
   JSON.stringify(findAll(root, "es-skin").map((node) => node.props["aria-label"])));
-check("皮肤按钮 title 全部有中文名（SKIN_LABELS 不再漏项）",
+check("皮肤按钮 title 全部有英文名（SKIN_LABELS 不再漏项）",
   JSON.stringify(findAll(root, "es-skin").map((node) => node.props.title)) ===
     JSON.stringify(AVAILABLE_SKINS.map((s) => SKIN_LABELS[s])),
   JSON.stringify(findAll(root, "es-skin").map((node) => node.props.title)));
