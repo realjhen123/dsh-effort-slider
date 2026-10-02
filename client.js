@@ -20,16 +20,27 @@
    * 皮肤显示名。用对象查而不是三目链 —— 三目链每加一个皮肤都得改一处、
    * 漏了就会把英文键名当中文标题显示出来（本文件历史上就是这么漏过一次的）。
    */
-  var SKIN_LABELS = { nebula: "星际星云", holo: "全息能量", chrome: "液态金属", fluid: "流体" };
+  var SKIN_LABELS = { nebula: "Nebula", holo: "Hologram", chrome: "Liquid metal", fluid: "Fluid" };
   /** 未知皮肤名退回键名本身：绝不返回 undefined（title 会变成 "undefined"）。 */
   function skinLabel(skin) {
     return Object.prototype.hasOwnProperty.call(SKIN_LABELS, skin) ? SKIN_LABELS[skin] : String(skin);
   }
   var STORAGE_KEY = "dsh-effort-slider.skin";
   var ENDPOINT = "/plugins/dsh-effort-slider/preferences";
-  var FALLBACK_NAMES = ["轻", "中", "重", "极", "极重", "满"];
+  /**
+   * ★ 界面文案**全英文**（用户 2026-10-02 要求：「全都用英文」）。
+   * 档位名 / 档位说明优先用模型目录里的原文，但**只接受 ASCII**：
+   * 中文宿主（本机 DSH 就是）的目录会给回「轻度 / 中 / 高 / 极高 / 最高」这类本地化名字，
+   * 直接采信就又把中文带进界面了。非 ASCII、空串、非字符串一律回退到下面的英文梯子。
+   * 判定刻意放宽到可打印 ASCII 全区间（不追求严格语言检测）——只要没有非英文字符就放行。
+   */
+  function asciiOnly(value) {
+    return (typeof value === "string" && value !== "" && /^[\x20-\x7e]+$/.test(value)) ? value : "";
+  }
+  /** 英文档位梯子（按**位置**取，与目录的语言无关）；含追加的 ULTRA 格在内共 6 条。 */
+  var FALLBACK_NAMES = ["Low", "Medium", "High", "Very High", "Max", "Full"];
   /** 写回失败时的统一文案：面板描述行 + 收起态提示都用它，避免两处文案漂移。 */
-  var FAIL_HINT = "切换失败，已回到原档位。";
+  var FAIL_HINT = "Switch failed — reverted to the previous level.";
 
   /* ─────────────────── TURBO：ULTRA 档位 / 闪电 / tok/s 读数 ─────────────────── */
 
@@ -201,16 +212,18 @@
   }
 
   function effortName(effort, index, total) {
-    if (effort && effort.name) return effort.name;
-    if (total <= 1) return "默认";
+    var name = asciiOnly(effort && effort.name);
+    if (name) return name;
+    if (total <= 1) return "Default";
     var at = Math.round((index / (total - 1)) * (FALLBACK_NAMES.length - 1));
     return FALLBACK_NAMES[Math.min(FALLBACK_NAMES.length - 1, Math.max(0, at))];
   }
   function effortDesc(effort, index, total) {
-    if (effort && effort.description) return effort.description;
-    if (index === 0) return "最省最快，适合直给的小活。";
-    if (index === total - 1) return "压满算力啃硬骨头，token 消耗最高。";
-    return "第 " + String(index + 1) + " / " + String(total) + " 档：越高越慢，也越稳。";
+    var desc = asciiOnly(effort && effort.description);
+    if (desc) return desc;
+    if (index === 0) return "Fastest and cheapest — good for small, direct jobs.";
+    if (index === total - 1) return "Full power for hard problems; highest token cost.";
+    return "Level " + String(index + 1) + " / " + String(total) + ": slower as you go up, and steadier.";
   }
 
   /**
@@ -1647,7 +1660,7 @@
         setBusy(false);
         setFailed(true);
         putDraft(committed);
-        if (api && typeof api.notify === "function") api.notify("切换推理等级失败");
+        if (api && typeof api.notify === "function") api.notify("Failed to switch reasoning effort");
       };
       try {
         Promise.resolve(commit({
@@ -1747,8 +1760,8 @@
       // F7：失败不能只留在 console 里 —— data-failed 会让 pill 边框变红（CSS 已有规则），
       // 这里再补上原生 tooltip / 无障碍名，收起态也能看懂「为什么红了」。
       // 加载态也给一句明确文案：能看到控件就说明它没被时序杀死。
-      "aria-label": loading ? "推理等级：正在读取当前模型的档位" : ("推理等级：" + currentName + (failed ? "（" + FAIL_HINT + "）" : "")),
-      title: loading ? "推理等级 · 正在读取当前模型的档位…" : ("推理等级 · " + currentName + (failed ? " · " + FAIL_HINT : "")),
+      "aria-label": loading ? "Reasoning effort: reading this model's levels" : ("Reasoning effort: " + currentName + (failed ? " (" + FAIL_HINT + ")" : "")),
+      title: loading ? "Reasoning effort · reading this model's levels…" : ("Reasoning effort · " + currentName + (failed ? " · " + FAIL_HINT : "")),
       disabled: loading,
       onClick: function (event) { event.stopPropagation(); if (loading) return; setOpen(!open); },
       onPointerDown: function (event) { event.stopPropagation(); },
@@ -1806,7 +1819,7 @@
         "data-on": skinOf(prefs) === skin ? "1" : "0",
         // 显示名走 SKIN_LABELS：加皮肤时不会因为漏改三目链而显示成键名
         title: skinLabel(skin),
-        "aria-label": "皮肤：" + skin,
+        "aria-label": "Skin: " + skin,
         onClick: function (event) { event.stopPropagation(); preferences.set(skin); },
       });
     });
@@ -1814,15 +1827,15 @@
     var panel = h("div", {
       className: "es-panel",
       role: "dialog",
-      "aria-label": "推理等级",
+      "aria-label": "Reasoning effort",
       onPointerDown: function (event) { event.stopPropagation(); },
       // 灵动：玻璃接光。注意拖轨道时 pointermove 会冒泡到这里 —— 正好，光标在哪光就在哪。
       onPointerMove: glassLight,
       onPointerLeave: glassLightOff,
     },
       h("div", { className: "es-head" },
-        h("span", { className: "es-title" }, "推理等级"),
-        h("span", { className: "es-model" }, effort ? effort.modelName : "正在读取…"),
+        h("span", { className: "es-title" }, "Reasoning effort"),
+        h("span", { className: "es-model" }, effort ? effort.modelName : "Loading…"),
         // ★ 闪电控件：面板**右上角**，脱离文档流。
         //   用户反馈原文：「闪电的位置一直在跳动当拉动滑动条时…闪电应该放到一个角落而不是居中」。
         //   根因：它原来是 `.es-foot` 的第二个 flex 子元素，而那一行是
@@ -1839,8 +1852,8 @@
           ref: boltRef,
           "data-on": lightning ? "1" : "0",
           "aria-pressed": lightning ? "true" : "false",
-          "aria-label": "闪电模式：开启后父代理只做编排、并发派发子代理",
-          title: "闪电模式：开启后父代理只做编排、并发派发子代理",
+          "aria-label": "Lightning mode: the parent agent only orchestrates and fans out to subagents",
+          title: "Lightning mode: the parent agent only orchestrates and fans out to subagents",
           disabled: loading,
           onClick: toggleLightning,
           onPointerDown: function (event) { event.stopPropagation(); },
@@ -1911,7 +1924,7 @@
         h("div", {
           className: "es-rate",
           "data-idle": rate > 0 ? "0" : "1",
-          title: "本会话舰队 token 吞吐（生成 + 输入）",
+          title: "Fleet token throughput for this session (generation + input)",
         },
           h("span", { className: "es-rate__num" }, rate.toLocaleString("en-US")),
           h("span", { className: "es-rate__unit" }, "tok/s"),
@@ -2514,7 +2527,7 @@
               name: "conversation.input.right",
               id: "effort-slider",
               order: 30,
-              label: function () { return "推理等级"; },
+              label: function () { return "Reasoning effort"; },
             inject: function (sessionId) {
               // F6：这段是插槽系统直接调的，任何异常都不能抛回插槽/输入区（那会连累宿主）。
               //
