@@ -1,0 +1,15 @@
+# 全仓库统一 LF。
+#
+# 原因：CI 在 Windows runner 上检出时用的是 runner 镜像里的 core.autocrlf=true，
+# 工作区全是 CRLF；而 build.mjs 会把 effort-slider.css 的原文整段嵌进 lib/client.js。
+# 行尾一变，「产物是否与源码同步」那一步就会红 —— 明明源码没改，却像产物过期。
+# （build.mjs 内部另有一道 toLf() 归一，这里是仓库侧的第一道保险。）
+* text=auto eol=lf
+
+# 二进制资源别让 git 碰
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
