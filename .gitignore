@@ -1,0 +1,16 @@
+# 依赖与构建垃圾
+node_modules/
+*.log
+*.tmp
+*.bak
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# 本机临时产物（预览生成器、探针脚本的输出）
+preview/*.local.html
+*.local.*
