@@ -112,6 +112,7 @@ node test/host.test.mjs     # 宿主：端点、偏好文件、心跳、异常�
 node test/turbo.test.mjs    # turbo 路由 + 策略注入（假 ctx 集成）
 node test/metrics.test.mjs  # tok/s 计量（纯函数，含随机压力）
 node test/fluid.test.mjs    # 流体引擎：密度/列覆盖/颜色语义/最高档提速
+node test/client-lifecycle.test.mjs # 客户端：请求超时、卸载清理、会话切换与订阅回归
 ```
 
 测试里的皮肤清单与默认皮肤都是从 `client.js` 源码里读出来的，不写死——皮肤下线或换默认值时测试跟着源码走。
@@ -136,6 +137,8 @@ THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许�
 
 ## 已知限制
 
+- 实时子代理计量使用运行中会话的有界内存索引，不定期扫描会话历史；归档子代理不计入成员数。插件文件更新后，需要宿主下次正常加载才会采用新代码，正在运行的进程仍使用原版本。
+- Turbo 请求等待最多 5 秒；模型档位提交若 10 秒仍未返回，滑条结束等待并提示失败，但不取消宿主操作。宿主稍后成功时仍以真实目录状态为准。
 - **包名 = 运行期标识**：`dsh-effort-slider` 同时是 npm 包名、客户端 bundle 的注册 id（`WebBootEntry.id`）、端点前缀（`/plugins/dsh-effort-slider/...`）和 `data-effort-slider` 属性值。**改这个名字要四处同步**：`package.json` 的 `name`、插件自带 `cordis.patch.yml` 的 `name`、profile 的 `dsh.profile.bundles` 条目、以及 `profiles/<profile>/node_modules` 下指向插件目录的 junction。任何一处不同步，DSH 会在 profile 装配阶段直接抛 `package identity is invalid for <name>` 起不来（这是本项目真实踩过的坑）。
 - 皮肤 `nebula` 已下线但代码保留；`DEFAULT_SKIN` 与皮肤白名单（`client.js`、`index.mjs` 各一份）必须同时改，测试会检查这一致性。
 - Ultra 扫光在高 tok/s 时观感偏张扬；闪电的渐变流动依赖 CSS `@property`，不支持的宿主上会退化成静态渐变。
