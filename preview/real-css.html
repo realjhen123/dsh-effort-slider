@@ -1,0 +1,675 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<title>插件真样式核对图</title>
+<style>
+/* dsh-client-effort-slider — 组件样式
+   设计要点：全部变量作用在 .es-root 内，不污染宿主；四套皮肤由 [data-skin] 切换；
+   收起态是一枚发光核心（环上刻着当前档位），展开态是悬浮能量条。 */
+
+.es-root{position:relative;display:flex;align-items:center;font-family:inherit}
+
+/* ── 收起态：发光核心 ───────────────────────────────────── */
+.es-pill{
+  -webkit-appearance:none;appearance:none;margin:0;cursor:pointer;position:relative;
+  display:flex;align-items:center;gap:8px;height:32px;padding:0 11px 0 7px;border-radius:999px;
+  background:transparent;border:1px solid rgba(255,255,255,.14);color:var(--dsw-alias-label-primary,#e9edf6);
+  font:inherit;transition:transform .2s cubic-bezier(.22,1.1,.36,1),box-shadow .25s,border-color .25s;
+}
+.es-pill:hover{transform:translateY(-1px)}
+.es-pill:active{transform:translateY(0) scale(.985)}
+.es-pill__name{font-size:12.5px;font-weight:600;white-space:nowrap;letter-spacing:.01em}
+.es-orb{position:relative;width:20px;height:20px;flex:0 0 auto;display:grid;place-items:center;border-radius:999px}
+.es-orb__ring{
+  position:absolute;inset:0;border-radius:999px;
+  background:conic-gradient(from -90deg,
+    var(--es-ring-on,#7d8bee) calc(var(--ratio) * 360deg),
+    rgba(255,255,255,.16) calc(var(--ratio) * 360deg));
+  -webkit-mask:radial-gradient(circle, transparent 56%, #000 58%);
+  mask:radial-gradient(circle, transparent 56%, #000 58%);
+  transition:background .3s ease;
+}
+.es-orb__core{width:12px;height:12px;border-radius:999px;transition:box-shadow .3s ease,background .3s ease}
+
+/* ── 展开态：悬浮能量条 ─────────────────────────────────── */
+.es-panel{
+  position:absolute;bottom:calc(100% + 10px);right:0;width:392px;max-width:calc(100vw - 32px);
+  z-index:60;display:flex;flex-direction:column;gap:9px;padding:14px 16px;border-radius:20px;
+  transform-origin:calc(100% - 30px) calc(100% + 10px);
+  animation:es-in .34s cubic-bezier(.16,1.02,.28,1.02) both;
+}
+@keyframes es-in{
+  from{opacity:0;transform:translateY(12px) scale(.72,.9)}
+  to{opacity:1;transform:none}
+}
+.es-head{display:flex;align-items:center;justify-content:space-between;gap:10px;position:relative;z-index:1}
+.es-title{font-size:13.5px;font-weight:650;letter-spacing:.02em}
+.es-model{
+  font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;opacity:.55;
+  max-width:56%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.es-desc{position:relative;z-index:1;font-size:12.5px;opacity:.72;margin-top:-3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.es-railWrap{position:relative;z-index:1}
+.es-rail{
+  position:relative;height:30px;border-radius:999px;overflow:hidden;isolation:isolate;
+  cursor:ew-resize;touch-action:none;outline:none;
+}
+.es-rail:focus-visible{box-shadow:0 0 0 2px var(--es-focus,rgba(150,180,255,.6))}
+.es-rail__fx{position:absolute;inset:0;pointer-events:none}
+/* 皮肤 D（流体）的 canvas 图层：流体视觉 100% 由它承担。
+   默认 display:none —— 只有 [data-skin="fluid"] 才打开（见"皮肤 D"段的 display:block），
+   其它皮肤下它不占位、不绘制。border-radius:inherit 让画布跟着轨道圆角裁切。 */
+.es-rail__fluid{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border-radius:inherit;display:none}
+/* 填充从**轨道左边缘**起算、一直画到珠子中心（珠子中心 = 17px + (W-34px)·pct）。
+   旧写法 left:17px + width:(W-34px)·pct 会让最低档时左端露出 17px 空档（实机可见的 bug）。 */
+.es-rail__fill{position:absolute;top:0;bottom:0;left:0;width:calc(17px + (100% - 34px) * var(--pct) / 100%);border-radius:999px}
+.es-rail__grid{position:absolute;inset:0;pointer-events:none}
+.es-rail__grid i{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.13);transform:translateX(-.5px)}
+.es-sparks{position:absolute;inset:0;pointer-events:none;overflow:hidden;border-radius:inherit}
+/* 吸附脉冲环：环体与它的辉光都必须"夹"在轨道内。
+   关键是**动画的终态**：旧写法在别的皮肤上把 scale 拉到 2.9，26px 的环会变成 75px，
+   而轨道只有 30px 高 —— .es-sparks 的 overflow:hidden + border-radius 会把超出部分
+   裁成一块贴着圆角的"白色半圆"，再配上 opacity → 0，看起来就是"残影、还会慢慢消失"。
+   这里锁死：24px × 1.05 = 25.2px ≤ 30px，辉光也从 18px 收到 10px。 */
+.es-sparks::before{
+  content:"";position:absolute;top:50%;left:calc(17px + (100% - 34px) * var(--pct) / 100%);
+  width:24px;height:24px;margin:-12px 0 0 -12px;border-radius:999px;
+  border:1px solid currentColor;box-shadow:0 0 10px currentColor;
+  animation:es-ring .62s cubic-bezier(.2,.7,.3,1) both;
+}
+@keyframes es-ring{from{transform:scale(.6);opacity:.85}to{transform:scale(1.05);opacity:0}}
+.es-knob{
+  position:absolute;top:50%;left:calc(17px + (100% - 34px) * var(--pct) / 100%);
+  z-index:2;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:999px;
+  transition:left .07s linear;will-change:left;
+}
+.es-knob::after{
+  content:"";position:absolute;left:18%;right:18%;top:11%;height:26%;border-radius:999px;
+  background:linear-gradient(180deg,rgba(255,255,255,.85),rgba(255,255,255,0));opacity:.8;
+}
+.es-root[data-snap="1"] .es-knob{transition:left .32s cubic-bezier(.2,1.45,.4,1)}
+.es-ticks{position:relative;height:16px;margin-top:4px}
+.es-tick{
+  position:absolute;top:0;transform:translateX(-50%);cursor:pointer;user-select:none;
+  font-size:10.5px;line-height:16px;white-space:nowrap;opacity:.6;transition:opacity .2s,color .2s,text-shadow .2s;
+}
+.es-tick[data-on="1"]{font-weight:700;opacity:1}
+.es-foot{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:2px}
+.es-readout{display:flex;align-items:baseline;gap:7px;min-height:24px}
+.es-readout__lvl{font-size:24px;font-weight:750;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.es-readout__of{font-size:11.5px;opacity:.5}
+.es-readout__name{font-size:13px;font-weight:650}
+.es-readout__spinner{width:16px;height:16px;border-radius:999px;border:2px solid currentColor;border-top-color:transparent;
+  animation:es-spin .7s linear infinite;opacity:.8}
+@keyframes es-spin{to{transform:rotate(360deg)}}
+.es-skins{display:flex;align-items:center;gap:6px}
+.es-skin{
+  -webkit-appearance:none;appearance:none;cursor:pointer;width:20px;height:20px;padding:0;border-radius:999px;
+  border:1px solid rgba(255,255,255,.22);background:transparent;position:relative;transition:transform .2s,border-color .2s;
+}
+.es-skin:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.5)}
+.es-skin[data-on="1"]{border-color:currentColor;box-shadow:0 0 0 2px rgba(255,255,255,.12),0 0 10px currentColor}
+.es-skin::after{content:"";position:absolute;inset:3px;border-radius:999px;background:currentColor;opacity:.85}
+.es-energy{position:relative;z-index:1;height:3px;border-radius:9px;background:rgba(255,255,255,.07);overflow:hidden}
+.es-energy i{display:block;height:100%;width:var(--pct);border-radius:9px;transition:width .18s ease}
+.es-root[data-busy="1"] .es-rail{cursor:progress}
+.es-root[data-failed="1"] .es-pill{border-color:var(--dsw-alias-state-error-primary,#e43c3c)}
+
+/* ── 皮肤 A：星际星云 ────────────────────────────────────── */
+[data-effort-slider][data-skin="nebula"]{--es-ring-on:#8ea2ff;--es-focus:rgba(150,180,255,.65);color:#c9d5ff}
+[data-effort-slider][data-skin="nebula"] .es-pill{background:linear-gradient(180deg,#1b2038,#0b0d18);
+  box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 0 1px rgba(130,160,255,.08) inset}
+[data-effort-slider][data-skin="nebula"] .es-pill:hover{border-color:rgba(150,180,255,.5);box-shadow:0 8px 26px rgba(80,120,255,.3)}
+[data-effort-slider][data-skin="nebula"] .es-orb__core{
+  background:radial-gradient(circle at 34% 28%,#fff 0 12%,#d8e4ff 26%,#6f8cff 56%,#7b35d6 82%,#140c26);
+  box-shadow:0 0 12px rgba(120,150,255,.85),0 0 26px rgba(128,60,220,.55)}
+[data-effort-slider][data-skin="nebula"] .es-panel{border:1px solid rgba(126,152,255,.22);
+  background:radial-gradient(140% 130% at 10% 0%,#1b2450 0%,#0f1329 44%,#0a0b16 100%);
+  box-shadow:0 28px 64px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.03) inset,0 0 40px rgba(70,95,230,.18)}
+[data-effort-slider][data-skin="nebula"] .es-panel::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background-image:
+    radial-gradient(1.4px 1.4px at 10% 24%,#fff 50%,transparent),
+    radial-gradient(1.2px 1.2px at 27% 72%,#cfe0ff 50%,transparent),
+    radial-gradient(1.6px 1.6px at 43% 30%,#fff 50%,transparent),
+    radial-gradient(1.1px 1.1px at 58% 82%,#b9c8ff 50%,transparent),
+    radial-gradient(1.5px 1.5px at 72% 20%,#fff 50%,transparent),
+    radial-gradient(1.1px 1.1px at 88% 62%,#d7e2ff 50%,transparent),
+    radial-gradient(1.3px 1.3px at 95% 38%,#fff 50%,transparent);
+  animation:es-twinkle 3.8s ease-in-out infinite}
+@keyframes es-twinkle{0%,100%{opacity:.42}50%{opacity:1}}
+[data-effort-slider][data-skin="nebula"] .es-rail{background:linear-gradient(180deg,#080b1a,#151b36);
+  box-shadow:0 0 0 1px rgba(156,186,255,.36) inset,0 0 22px rgba(70,110,255,.14) inset,0 5px 16px rgba(0,0,0,.7) inset,0 1px 0 rgba(160,190,255,.18)}
+[data-effort-slider][data-skin="nebula"] .es-rail__fx{background:
+  radial-gradient(58% 130% at 16% 50%,rgba(94,120,255,.42),transparent 70%),
+  radial-gradient(54% 130% at 76% 50%,rgba(176,70,230,.34),transparent 70%),
+  linear-gradient(180deg,rgba(255,255,255,.10),transparent 42%,rgba(0,0,0,.32))}
+[data-effort-slider][data-skin="nebula"] .es-rail__fill{
+  background:linear-gradient(180deg,#7b8cff 0%,#4a5cf0 34%,#7c3fe0 72%,#c65aa8 100%);
+  box-shadow:0 0 16px rgba(110,130,255,.7),0 0 36px rgba(164,92,255,.42)}
+/* 扫光必须屏蔽两端圆头：旧写法把白色渐变扫过 border-radius:999px 的圆头，
+   走到右端时被弧线裁出一块白色区域 —— 用户反馈的"最右端白色半圆 + 拖影"。
+   mask 让它离两端 20px 就淡出，永远画不进圆头。 */
+[data-effort-slider][data-skin="nebula"] .es-rail__fill::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
+  background-size:34% 100%;background-repeat:no-repeat;animation:es-flow 2.4s linear infinite;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 20px,#000 calc(100% - 20px),transparent 100%);
+  mask-image:linear-gradient(90deg,transparent 0,#000 20px,#000 calc(100% - 20px),transparent 100%)}
+@keyframes es-flow{from{background-position:-45% 0}to{background-position:145% 0}}
+[data-effort-slider][data-skin="nebula"] .es-knob{background:
+  radial-gradient(circle at 36% 28%,#fff 0 26%,#f2f6ff 46%,#c3d0ff 72%,#7d8bee 100%);
+  box-shadow:0 0 0 1px rgba(255,255,255,.75),0 0 14px rgba(255,255,255,.75),0 0 34px rgba(120,150,255,.85),0 2px 8px rgba(0,0,0,.5)}
+[data-effort-slider][data-skin="nebula"] .es-tick[data-on="1"]{color:#eef2ff;text-shadow:0 0 10px rgba(150,180,255,.9)}
+[data-effort-slider][data-skin="nebula"] .es-energy i{background:linear-gradient(90deg,#6577ff,#b062ff,#ff9ad8);box-shadow:0 0 10px rgba(140,110,255,.75)}
+[data-effort-slider][data-skin="nebula"] .es-readout__lvl{background:linear-gradient(180deg,#fff,#a9bcff);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* ── 皮肤 B：全息能量 ────────────────────────────────────── */
+[data-effort-slider][data-skin="holo"]{--es-ring-on:#3ae6db;--es-focus:rgba(64,240,230,.7);color:#7ff6ec}
+[data-effort-slider][data-skin="holo"] .es-pill{background:linear-gradient(180deg,#0d3b47,#061c24);
+  border-color:rgba(64,240,230,.42);box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 14px rgba(30,220,210,.16)}
+[data-effort-slider][data-skin="holo"] .es-pill:hover{border-color:rgba(64,240,230,.9);box-shadow:0 0 24px rgba(40,230,220,.4)}
+[data-effort-slider][data-skin="holo"] .es-orb__core{border-radius:6px;
+  background:linear-gradient(180deg,#c6fffb,#2ce4e4 52%,#0f9aa8);
+  box-shadow:0 0 16px rgba(64,240,230,.95),0 0 30px rgba(30,200,210,.5)}
+[data-effort-slider][data-skin="holo"] .es-orb__ring{border-radius:7px;
+  -webkit-mask:linear-gradient(#000,#000);mask:linear-gradient(#000,#000);
+  background:conic-gradient(from -90deg,rgba(58,230,219,.9) calc(var(--ratio) * 360deg),rgba(58,230,219,.18) calc(var(--ratio) * 360deg));
+  inset:-2px;opacity:.85}
+[data-effort-slider][data-skin="holo"] .es-panel{border:1px solid rgba(64,240,230,.34);
+  background:linear-gradient(180deg,#08242f,#04101a 94%);
+  box-shadow:0 28px 64px rgba(0,0,0,.76),0 0 40px rgba(30,220,210,.18)}
+[data-effort-slider][data-skin="holo"] .es-panel::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;opacity:.5;
+  background:repeating-linear-gradient(180deg,rgba(64,240,230,.07) 0 1px,transparent 1px 4px)}
+[data-effort-slider][data-skin="holo"] .es-panel::after{content:"";position:absolute;left:14px;right:14px;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(120,255,246,.9),transparent)}
+[data-effort-slider][data-skin="holo"] .es-rail{border-radius:9px;background:linear-gradient(180deg,#02121a,#0a2a34);
+  box-shadow:0 0 0 1px rgba(80,246,236,.55) inset,0 0 22px rgba(30,200,200,.22) inset,0 5px 14px rgba(0,0,0,.7) inset}
+[data-effort-slider][data-skin="holo"] .es-rail__fill{border-radius:9px;
+  background:linear-gradient(180deg,#a9ffff 0%,#35e6e6 32%,#12b3bf 68%,#0a6f7c 100%);
+  box-shadow:0 0 20px rgba(64,240,230,.85)}
+[data-effort-slider][data-skin="holo"] .es-rail__fill::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:repeating-linear-gradient(90deg,rgba(2,32,38,.42) 0 1px,transparent 1px 11px);
+  animation:es-scan 1.1s linear infinite;opacity:.75}
+@keyframes es-scan{from{background-position:0 0}to{background-position:11px 0}}
+[data-effort-slider][data-skin="holo"] .es-rail__fx{background:
+  linear-gradient(90deg,transparent,rgba(64,240,230,.10) 50%,transparent),
+  linear-gradient(180deg,rgba(255,255,255,.09),transparent 42%,rgba(0,0,0,.4))}
+[data-effort-slider][data-skin="holo"] .es-knob{border-radius:9px;
+  background:linear-gradient(180deg,#fff,#5ef6ec 46%,#0f9aa8);
+  box-shadow:0 0 0 1px rgba(255,255,255,.7),0 0 20px rgba(120,255,248,.95),0 0 38px rgba(40,220,215,.6)}
+[data-effort-slider][data-skin="holo"] .es-tick[data-on="1"]{color:#d8fffb;text-shadow:0 0 10px rgba(64,240,230,.95)}
+[data-effort-slider][data-skin="holo"] .es-title{color:#d8fffb;text-shadow:0 0 10px rgba(64,240,230,.5)}
+[data-effort-slider][data-skin="holo"] .es-energy i{background:linear-gradient(90deg,#0c5462,#4ff0e6);box-shadow:0 0 10px rgba(64,240,230,.85)}
+[data-effort-slider][data-skin="holo"] .es-readout__lvl{color:#d8fffb;text-shadow:0 0 14px rgba(64,240,230,.6)}
+
+/* ── 皮肤 C：液态金属 ────────────────────────────────────── */
+[data-effort-slider][data-skin="chrome"]{--es-ring-on:#eaf0fa;--es-focus:rgba(235,244,255,.7);color:#dbe3ef}
+[data-effort-slider][data-skin="chrome"] .es-pill{background:linear-gradient(180deg,#3f454e,#1c1f25);
+  border-color:rgba(255,255,255,.22);box-shadow:0 6px 20px rgba(0,0,0,.5),0 1px 0 rgba(255,255,255,.2) inset}
+[data-effort-slider][data-skin="chrome"] .es-pill:hover{border-color:rgba(255,255,255,.5);box-shadow:0 8px 24px rgba(190,210,240,.22)}
+[data-effort-slider][data-skin="chrome"] .es-orb__core{
+  background:radial-gradient(circle at 30% 26%,#fff 0 13%,#e6ecf7 28%,#a3b0c4 54%,#57616f 80%,#2b3038);
+  box-shadow:0 2px 8px rgba(0,0,0,.55),0 0 16px rgba(210,228,255,.35) inset}
+[data-effort-slider][data-skin="chrome"] .es-panel{border:1px solid rgba(255,255,255,.2);
+  background:linear-gradient(168deg,#41474f,#22262d 60%,#16191e);
+  box-shadow:0 30px 66px rgba(0,0,0,.74),0 1px 0 rgba(255,255,255,.2) inset}
+[data-effort-slider][data-skin="chrome"] .es-rail{background:linear-gradient(180deg,#2b3038,#0d0f13);
+  box-shadow:0 0 0 1px rgba(255,255,255,.22) inset,0 1px 0 rgba(255,255,255,.14) inset,0 6px 16px rgba(0,0,0,.75) inset}
+[data-effort-slider][data-skin="chrome"] .es-rail__fx{background:linear-gradient(180deg,rgba(255,255,255,.12),transparent 44%,rgba(0,0,0,.42))}
+[data-effort-slider][data-skin="chrome"] .es-rail__fill{
+  background:linear-gradient(180deg,#ffffff 0%,#e2e8f2 26%,#aab5c6 58%,#6c7787 100%);
+  box-shadow:0 0 14px rgba(225,238,255,.35)}
+[data-effort-slider][data-skin="chrome"] .es-knob{background:
+  radial-gradient(circle at 32% 24%,#fff 0 22%,#f3f6fb 42%,#c2ccda 66%,#7d8795 88%,#464d57);
+  box-shadow:0 0 0 1px rgba(255,255,255,.6),0 2px 8px rgba(0,0,0,.6),0 9px 18px rgba(0,0,0,.42)}
+[data-effort-slider][data-skin="chrome"] .es-knob::before{content:"";position:absolute;inset:1px;border-radius:999px;overflow:hidden;
+  background:conic-gradient(from 140deg,rgba(255,255,255,.9),transparent 32%,rgba(255,255,255,.6) 62%,transparent 82%);
+  opacity:.45;animation:es-spin 6s linear infinite}
+[data-effort-slider][data-skin="chrome"] .es-knob::after{left:16%;right:16%;top:9%;height:22%;opacity:.95}
+[data-effort-slider][data-skin="chrome"] .es-tick[data-on="1"]{color:#fff;text-shadow:0 0 9px rgba(235,244,255,.85)}
+[data-effort-slider][data-skin="chrome"] .es-energy i{background:linear-gradient(90deg,#5c6675,#f2f7ff);box-shadow:0 0 9px rgba(232,241,255,.7)}
+[data-effort-slider][data-skin="chrome"] .es-readout__lvl{background:linear-gradient(180deg,#fff,#96a3b6);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* ── 皮肤 D：流体 ────────────────────────────────────────── */
+/* 色系沿用 nebula（蓝 → 紫 → 粉），星点闪烁改名 es-fluid-twinkle，避免和皮肤 A 的 es-twinkle 撞名。 */
+[data-effort-slider][data-skin="fluid"]{--es-ring-on:#8ea2ff;--es-focus:rgba(150,180,255,.65);color:#c9d5ff}
+/* 收起态的胶囊与核心：
+   基础样式里 .es-pill / .es-orb__core 是**没有底色**的，底色全靠每套皮肤自己给。
+   漏掉这两条的话，流体皮肤在收起态就只剩一层几乎看不见的白环（这个坑皮肤 A 早期踩过一次）。 */
+[data-effort-slider][data-skin="fluid"] .es-pill{background:linear-gradient(180deg,#151a34,#0a0c17);
+  box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 0 1px rgba(130,160,255,.08) inset}
+[data-effort-slider][data-skin="fluid"] .es-pill:hover{border-color:rgba(150,180,255,.5);
+  box-shadow:0 8px 26px rgba(80,120,255,.3)}
+[data-effort-slider][data-skin="fluid"] .es-orb__core{
+  background:radial-gradient(circle at 34% 26%,#fff 0 12%,#dbe6ff 26%,#6f8cff 54%,#a355e0 80%,#160d2a);
+  box-shadow:0 0 12px rgba(120,150,255,.85),0 0 26px rgba(150,80,220,.5)}
+[data-effort-slider][data-skin="fluid"] .es-panel{border:1px solid rgba(126,152,255,.22);
+  background:radial-gradient(140% 130% at 10% 0%,#161d40 0%,#0d1124 46%,#080a14 100%);
+  box-shadow:0 28px 64px rgba(0,0,0,.72),0 0 0 1px rgba(255,255,255,.03) inset,0 0 40px rgba(70,95,230,.18)}
+[data-effort-slider][data-skin="fluid"] .es-panel::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background-image:
+    radial-gradient(1.4px 1.4px at 12% 26%,#fff 50%,transparent),
+    radial-gradient(1.2px 1.2px at 31% 74%,#cfe0ff 50%,transparent),
+    radial-gradient(1.5px 1.5px at 47% 32%,#fff 50%,transparent),
+    radial-gradient(1.1px 1.1px at 63% 80%,#b9c8ff 50%,transparent),
+    radial-gradient(1.5px 1.5px at 78% 22%,#fff 50%,transparent),
+    radial-gradient(1.1px 1.1px at 91% 58%,#d7e2ff 50%,transparent);
+  animation:es-fluid-twinkle 3.8s ease-in-out infinite}
+@keyframes es-fluid-twinkle{0%,100%{opacity:.42}50%{opacity:1}}
+/* canvas 图层：只有本皮肤打开（基础规则里是 display:none），流体不溢出轨道圆角。 */
+[data-effort-slider][data-skin="fluid"] .es-rail__fluid{display:block}
+[data-effort-slider][data-skin="fluid"] .es-rail{background:linear-gradient(180deg,#0a0d1e,#121732);
+  box-shadow:0 0 0 1px rgba(150,180,255,.34) inset,0 0 22px rgba(70,110,255,.16) inset,0 5px 16px rgba(0,0,0,.7) inset}
+/* fx 层的球面高光在 border-radius:999px 的圆头处同样会被裁成"白色半圆"，本皮肤直接关掉它。 */
+[data-effort-slider][data-skin="fluid"] .es-rail__fx{display:none}
+[data-effort-slider][data-skin="fluid"] .es-rail__grid i{background:rgba(255,255,255,.10)}
+/* 填充条：**完全透明**。它是 border-radius:999px 的胶囊，任何画在它上面的白色
+   （inset 高光、半透明白底）都会被圆头裁成"最右端一个白色半圆"，拖动时还跟着 --pct
+   变宽变窄 → 就是用户看到的白半圆拖影。流体皮肤的视觉 100% 由 canvas 承担，填充条不该存在。 */
+[data-effort-slider][data-skin="fluid"] .es-rail__fill{background:transparent;box-shadow:none;border:none}
+/* 珠子：白色**实心球**（用户明确要求，不要透明、不要空心描边）。 */
+[data-effort-slider][data-skin="fluid"] .es-knob{
+  background:radial-gradient(circle at 36% 28%,#ffffff 0 22%,#f4f7ff 44%,#c8d4ff 72%,#7f8dee 100%);
+  box-shadow:0 0 0 1px rgba(255,255,255,.7),0 0 12px rgba(255,255,255,.65),0 0 26px rgba(120,150,255,.7),0 2px 8px rgba(0,0,0,.5)}
+[data-effort-slider][data-skin="fluid"] .es-knob::after{display:none}
+/* 吸附脉冲环：**必须显式指定颜色**。不写的话 border-color/box-shadow 继承的 currentColor
+   会落到接近白色的文本色；而 .es-sparks 带 overflow:hidden + border-radius:inherit，
+   白色环一旦越出轨道就被圆角裁成贴着弧线的"白色半圆"，再配 opacity → 0，
+   就是"最右端一个白色半圆、有残影、还会慢慢消失"。
+   环的尺寸仍由全局 .es-sparks::before / @keyframes es-ring 锁死（≤ 轨道高度），这里只改颜色。 */
+[data-effort-slider][data-skin="fluid"] .es-sparks::before{border-color:rgba(168,188,255,.9);
+  box-shadow:0 0 10px rgba(140,170,255,.55)}
+[data-effort-slider][data-skin="fluid"] .es-tick[data-on="1"]{color:#eef2ff;text-shadow:0 0 10px rgba(150,180,255,.9)}
+[data-effort-slider][data-skin="fluid"] .es-energy i{background:linear-gradient(90deg,#6577ff,#b062ff,#ff9ad8);box-shadow:0 0 10px rgba(140,110,255,.75)}
+[data-effort-slider][data-skin="fluid"] .es-readout__lvl{background:linear-gradient(180deg,#fff,#a9bcff);-webkit-background-clip:text;background-clip:text;color:transparent}
+
+@media (max-width:560px){
+  .es-panel{width:min(392px,calc(100vw - 20px));padding:12px 13px}
+  .es-tick{font-size:9.5px}
+}
+@media (prefers-reduced-motion:reduce){
+  .es-panel{animation-duration:.01ms}
+  .es-rail__fill::after,.es-panel::before,.es-knob::before{animation:none}
+  [data-effort-slider][data-skin="fluid"] .es-panel::before{animation:none}
+  .es-knob{transition:none}
+}
+
+/* 加载态：store 还没就绪时的可见占位 —— 控件必须出现（首帧时序不该让它消失）。
+   不写 !important、不加全局规则，只作用于本控件自己的类。 */
+.es-pill--loading{opacity:.72;cursor:default}
+.es-pill--loading:hover{transform:none}
+.es-pill--loading .es-orb__ring{animation:es-loading-pulse 1.6s ease-in-out infinite}
+@keyframes es-loading-pulse{0%,100%{opacity:.45}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.es-pill--loading .es-orb__ring{animation:none}}
+
+body{margin:0;background:#0b0c10;color:#e9edf6;font:400 14px/1.5 "Segoe UI","Microsoft YaHei",system-ui;
+  display:flex;flex-direction:column;align-items:center;gap:230px;padding:60px 24px}
+.card{width:min(780px,94vw);border:1px solid rgba(255,255,255,.10);border-radius:26px;background:#181b21;
+  box-shadow:0 22px 54px rgba(0,0,0,.5);padding:14px 16px 10px}
+.toolrow{display:flex;align-items:center;gap:9px;min-height:34px}
+.tool{width:30px;height:30px;border-radius:99px;display:grid;place-items:center;color:#8e97a8;background:rgba(255,255,255,.05);font-size:14px}
+.tool.wide{width:auto;padding:0 11px;gap:6px;display:flex;font-size:13px}
+.spacer{flex:1}
+.send{width:32px;height:32px;border-radius:99px;display:grid;place-items:center;background:#2b6cff;color:#fff;font-size:15px}
+.collapsedrow{display:flex;gap:14px;align-items:center;margin-top:8px}
+</style></head>
+<body>
+
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="nebula"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:100.000%;--ratio:1.0000">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">压满算力啃硬骨头：架构级设计与疑难 bug 攻坚。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="0" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="1" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">5</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">最高</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="1" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">最高</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="holo"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:100.000%;--ratio:1.0000">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">压满算力啃硬骨头：架构级设计与疑难 bug 攻坚。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="0" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="1" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">5</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">最高</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="1" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">最高</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="chrome"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:100.000%;--ratio:1.0000">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">压满算力啃硬骨头：架构级设计与疑难 bug 攻坚。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="0" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="1" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">5</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">最高</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="1" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">最高</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="fluid"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:100.000%;--ratio:1.0000">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">压满算力啃硬骨头：架构级设计与疑难 bug 攻坚。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="0" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="1" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">5</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">最高</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="1" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">最高</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="nebula"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:25.000%;--ratio:0.2500">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">日常默认档，常规问答与普通代码改动。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="1" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="0" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">2</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">中</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="1" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">中</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="holo"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:25.000%;--ratio:0.2500">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">日常默认档，常规问答与普通代码改动。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="1" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="0" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">2</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">中</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="1" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">中</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="chrome"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:25.000%;--ratio:0.2500">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">日常默认档，常规问答与普通代码改动。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="1" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="0" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">2</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">中</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="1" aria-label="chrome"></button><button type="button" class="es-skin" data-on="0" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">中</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+  <section class="card">
+    <div class="toolrow">
+      <span class="tool">＋</span><span class="tool">◍</span><span class="tool wide">◇ Auto</span>
+      <span class="spacer"></span>
+      
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="fluid"
+       data-open="1" data-snap="0" data-busy="0" data-failed="0"
+       style="--pct:25.000%;--ratio:0.2500">
+    <div class="es-panel" role="dialog">
+      <div class="es-head"><span class="es-title">推理等级</span><span class="es-model">GPT-10 Eternal Galaxy</span></div>
+      <div class="es-desc">日常默认档，常规问答与普通代码改动。</div>
+      <div class="es-railWrap">
+        <div class="es-rail">
+          <div class="es-rail__fx"></div>
+          <div class="es-rail__fill"></div>
+          <div class="es-rail__grid"><i style="left:25.000%"></i><i style="left:50.000%"></i><i style="left:75.000%"></i></div>
+          <div class="es-sparks"></div>
+          <div class="es-knob"></div>
+        </div>
+        <div class="es-ticks"><span class="es-tick" data-on="0" style="left:0.000%">轻度</span><span class="es-tick" data-on="1" style="left:25.000%">中</span><span class="es-tick" data-on="0" style="left:50.000%">高</span><span class="es-tick" data-on="0" style="left:75.000%">极高</span><span class="es-tick" data-on="0" style="left:100.000%">最高</span></div>
+      </div>
+      <div class="es-foot">
+        <div class="es-readout">
+          <span class="es-readout__lvl">2</span>
+          <span class="es-readout__of">/ 5</span>
+          <span class="es-readout__name">中</span>
+        </div>
+        <div class="es-skins">
+          <button type="button" class="es-skin" data-on="0" aria-label="nebula"></button><button type="button" class="es-skin" data-on="0" aria-label="holo"></button><button type="button" class="es-skin" data-on="0" aria-label="chrome"></button><button type="button" class="es-skin" data-on="1" aria-label="fluid"></button>
+        </div>
+      </div>
+      <div class="es-energy"><i></i></div>
+    </div>
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">中</span>
+    </button>
+  </div>
+      <span class="send">↑</span>
+    </div>
+  </section>
+<section class="card"><div class="toolrow"><span class="spacer"></span>
+  <div class="collapsedrow">
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="nebula"
+       data-open="0" data-snap="0" data-busy="0" data-failed="0" style="--pct:60%;--ratio:0.6">
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">高</span>
+    </button>
+  </div>
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="holo"
+       data-open="0" data-snap="0" data-busy="0" data-failed="0" style="--pct:60%;--ratio:0.6">
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">高</span>
+    </button>
+  </div>
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="chrome"
+       data-open="0" data-snap="0" data-busy="0" data-failed="0" style="--pct:60%;--ratio:0.6">
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">高</span>
+    </button>
+  </div>
+  <div class="es-root" data-effort-slider="dsh-client-effort-slider" data-skin="fluid"
+       data-open="0" data-snap="0" data-busy="0" data-failed="0" style="--pct:60%;--ratio:0.6">
+    <button type="button" class="es-pill">
+      <span class="es-orb"><span class="es-orb__ring"></span><span class="es-orb__core"></span></span>
+      <span class="es-pill__name">高</span>
+    </button>
+  </div></div>
+  <span class="send">↑</span></div></section>
+</body></html>
