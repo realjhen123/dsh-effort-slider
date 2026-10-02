@@ -63,6 +63,18 @@ dsh plugin add github:yuhub233/dsh-effort-slider
 
 卸载：删掉那个目录（若你在 profile 的 `dsh.profile.bundles` 里登记过，一并删掉那行），重启 DSH。
 
+**可选：装 4 个配套 skill。** `skills/` 里打包了 Ultra / 闪电策略点名要加载的 playbook（`dispatching-parallel-agents` / `subagent-driven-development` / `verification-before-completion` / `systematic-debugging`）。DSH 的 skill 发现根是 `<项目>/.dsh/skills`、`<项目>/.agents/skills`、preset 的 `customSkillDirs`、`~/.dsh/skills`、`~/.agents/skills` 和 harness 内置目录 —— **不扫插件目录**，所以要手动复制一次：
+
+```powershell
+Copy-Item -Recurse -Force .\skills\dispatching-parallel-agents,`
+  .\skills\subagent-driven-development,`
+  .\skills\verification-before-completion,`
+  .\skills\systematic-debugging `
+  "$env:USERPROFILE\.dsh\skills\"
+```
+
+不装也能用：策略正文是自包含的，skill 只是更细的 playbook。
+
 ## 怎么实现的
 
 两半结构，各管一段。
@@ -115,6 +127,7 @@ policy.mjs           Ultra / 闪电两段英文策略正文
 turbo.mjs            turbo 路由 + 会话状态 + 车队计量接线
 metrics.mjs          纯函数式的 tok/s 统计
 test/                离线测试
+skills/              随包分发的 4 个上游 skill（可选用，装法见 skills/README.md）
 TURBO-CONTRACT.md    接口冻结单（档位模型、端点契约、注入纪律、实证）
 THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许可、用在哪）
 ```
@@ -130,12 +143,12 @@ THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许�
 
 插件的**代码**是自己写的，但交互设计与提示词策略明确建立在这几件公开成果之上（逐条对照、许可与用法见 [`THIRD-PARTY.md`](THIRD-PARTY.md)）：
 
-- **[`obra/superpowers`](https://github.com/obra/superpowers)**（MIT）——闪电模式的派活与集成纪律、Ultra 档的证据与根因纪律，来自它的 4 个 skill（`dispatching-parallel-agents` / `subagent-driven-development` / `verification-before-completion` / `systematic-debugging`）。这些 skill **不随本仓库分发**，DSH 上不存在时策略要求模型跳过。
+- **[`obra/superpowers`](https://github.com/obra/superpowers)**（MIT）——闪电模式的派活与集成纪律、Ultra 档的证据与根因纪律，来自它的 4 个 skill（`dispatching-parallel-agents` / `subagent-driven-development` / `verification-before-completion` / `systematic-debugging`）。这 4 个 skill **已随仓库原样打包在 [`skills/`](skills/)**（21 个上游文件、逐字节未改、含 MIT 许可证全文）。注意：**DSH 不会从插件目录自动加载 skill**，要复制到 `~/.dsh/skills/` 才会出现在会话的 skill 目录里（一条复制命令见 [`skills/README.md`](skills/README.md)）。没装也能用 —— 策略正文本身是自包含的，skill 只是更细的 playbook。
 - **[Anthropic：How we built our multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system)**——委派契约的四要素、按复杂度分档的规模阶梯、"多智能体约 15× token"这条成本事实、子代理把产物写进文件只回传指针。
 - **[Feather Icons](https://github.com/feathericons/feather) 的 `zap`**（MIT）——闪电开关的 SVG 路径。
 - **[React](https://github.com/facebook/react)**（MIT）——peer dependency，从宿主的模块加载器取，不打包。
 
-本插件**零运行时依赖**、不联网、无遥测，仓库里不含任何第三方源码。
+本插件**零运行时依赖**、不联网、无遥测。除上面那 4 个 skill（第三方源码，原样打包在 `skills/`，可直接不装）之外，仓库里不含其他第三方源码。
 
 ## English
 
@@ -147,4 +160,4 @@ THIRD-PARTY.md       出处与致谢（复用了哪些公开成果、什么许�
 
 The plugin ships a built `lib/client.js`, so it works right after installation (`dsh plugin add github:yuhub233/dsh-effort-slider`, DSH Desktop ≥ 2.0.9). It stores one JSON file locally and makes no network requests. Prompt-injection is scoped to a single session id, and the injected text is only re-sent when it actually changes.
 
-MIT licensed. The prompt-engineering ideas borrow from Anthropic's public multi-agent writing and the community [`superpowers`](https://github.com/obra/superpowers) skill set (MIT); the bolt outline is Feather Icons' `zap` (MIT). Those skills are **not** bundled here — see [`THIRD-PARTY.md`](THIRD-PARTY.md) for the full, itemised credits.
+MIT licensed. The prompt-engineering ideas borrow from Anthropic's public multi-agent writing and the community [`superpowers`](https://github.com/obra/superpowers) skill set (MIT); the bolt outline is Feather Icons' `zap` (MIT). Those four skills **are** bundled verbatim under [`skills/`](skills/) (21 upstream files, MIT text included) — but DSH does not discover skills from a plugin directory, so they only become loadable once copied into `~/.dsh/skills/` (one-liner in [`skills/README.md`](skills/README.md)). The policy text is self-contained, so the plugin works fine without them. See [`THIRD-PARTY.md`](THIRD-PARTY.md) for the full, itemised credits.
