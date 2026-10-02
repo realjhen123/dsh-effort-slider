@@ -122,7 +122,7 @@ async function injectionSuite() {
     ok(typeof injected.id === "string" && injected.id.length > 0, "[1] id 是非空字符串（会话恢复硬约束）");
     ok(injected.role === "user", "[1] role === 'user'");
     ok(injected.source && typeof injected.source.kind === "string" && injected.source.kind.length > 0, "[1] source.kind 非空");
-    ok(injected.source.plugin === "dsh-client-effort-slider" && injected.source.form === "instructions", "[1] source 带 plugin + form:instructions");
+    ok(injected.source.plugin === "dsh-effort-slider" && injected.source.form === "instructions", "[1] source 带 plugin + form:instructions");
     ok(Array.isArray(injected.content) && injected.content[0].type === "text" && injected.content[0].text === "POLICY-A", "[1] content 是数组且文本正确");
 
     // [2] 文本没变 → 不再注入
@@ -200,7 +200,7 @@ async function turboSuite() {
 
   // GET：没有 session 参数 → 全默认
   {
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo");
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo");
     const body = JSON.parse(response.body);
     ok(response.status === 200 && body.ok === true, "[5] GET 无参数返回 ok");
     ok(body.lightning === false && body.ultra === false && body.policy === "", "[5] 默认关且无策略文本");
@@ -209,7 +209,7 @@ async function turboSuite() {
 
   // PATCH：开闪电
   {
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { method: "PATCH", payload: { session: ROOT, lightning: true } });
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { method: "PATCH", payload: { session: ROOT, lightning: true } });
     const body = JSON.parse(response.body);
     ok(response.status === 200 && body.lightning === true && body.persisted === true, "[5] PATCH 打开闪电并持久化");
     ok(sessions[ROOT]?.lightning === true, "[5] 状态写进了状态文件");
@@ -217,7 +217,7 @@ async function turboSuite() {
 
   // GET：策略文本出现，且等于 policyText({lightning:true})
   {
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { session: ROOT });
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { session: ROOT });
     const body = JSON.parse(response.body);
     ok(body.policy === policyText({ lightning: true }), "[5] GET 返回的策略文本与 policy.mjs 一致");
     ok(body.policy.includes("Lightning Mode"), "[5] 文本里确实有闪电策略");
@@ -225,7 +225,7 @@ async function turboSuite() {
 
   // PATCH：非法 session id 被拒
   {
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { method: "PATCH", payload: { session: "../../etc/passwd", lightning: true } });
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { method: "PATCH", payload: { session: "../../etc/passwd", lightning: true } });
     ok(response.status === 400, "[5] 非法 session id 被拒（400）");
   }
 
@@ -239,7 +239,7 @@ async function turboSuite() {
     };
     stream(CHILD, "x".repeat(40));                 // 成员：40 字符 ≈ 10 token
     stream(OTHER, "y".repeat(400));                // 非成员：必须被忽略
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { session: ROOT });
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { session: ROOT });
     const body = JSON.parse(response.body);
     ok(body.agents === 1, `[6] 成员数 = 1（实际 ${body.agents}）`);
     ok(body.gen > 0 && body.gen <= 10, `[6] 生成速率来自成员（gen=${body.gen}）`);
@@ -249,9 +249,9 @@ async function turboSuite() {
 
   // [6] 关掉闪电后，成员集清空 → 读数归零
   {
-    await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { method: "PATCH", payload: { session: ROOT, lightning: false } });
+    await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { method: "PATCH", payload: { session: ROOT, lightning: false } });
     await tick();
-    const response = await callRoute(ctx, "/plugins/dsh-client-effort-slider/turbo", { session: ROOT });
+    const response = await callRoute(ctx, "/plugins/dsh-effort-slider/turbo", { session: ROOT });
     const body = JSON.parse(response.body);
     ok(body.agents === 0 && body.rate === 0, "[6] 关掉后不再统计（agents=0, rate=0）");
     ok(body.policy === "", "[6] 关掉后不再返回策略文本");
