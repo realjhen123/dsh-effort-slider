@@ -50,7 +50,7 @@ export function createPolicyInjector(ctx, options = {}) {
       id: randomUUID(),
       role: "user",
       content: [{ type: "text", text }],
-      source: { kind: "plugin", plugin: "dsh-client-effort-slider", form: "instructions" },
+      source: { kind: "plugin", plugin: "dsh-effort-slider", form: "instructions" },
     };
   }
 
