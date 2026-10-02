@@ -46,7 +46,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const here = (name) => fileURLToPath(new URL(name, import.meta.url));
-const PACKAGE_ID = "dsh-client-effort-slider";
+const PACKAGE_ID = "dsh-effort-slider";
 const PLACEHOLDER = "__EFFORT_SLIDER_CSS__";
 const OUT_FILE = here("./lib/client.js");
 const LIB_DIR = here("./lib/");
@@ -212,7 +212,7 @@ const banner = [
   "    var __esRequire = require;",
   body,
   "    if (module.exports && typeof module.exports.apply === 'function') return module.exports;",
-  "    throw new Error('dsh-client-effort-slider: bundle 未设置导出（require 或模块体有问题）');",
+  "    throw new Error('dsh-effort-slider: bundle 未设置导出（require 或模块体有问题）');",
   "  },",
   "});",
   "",
@@ -380,7 +380,7 @@ if (previous === banner) {
 /* ────────────────────── 7. 摘要 ────────────────────── */
 
 const flag = (on) => (on ? "yes" : "no");
-console.log("[build] dsh-client-effort-slider -> lib/client.js");
+console.log("[build] dsh-effort-slider -> lib/client.js");
 console.log(`  artifact     ${bytes(banner)} bytes  sha256 ${sha(banner)}`);
 console.log(`  source       client.js ${SOURCE_AT_READ.client.slice(0, 16)} | effort-slider.css ${SOURCE_AT_READ.css.slice(0, 16)}`);
 console.log(`  embedded css ${CSS_EMBED.bytes} bytes  identical to effort-slider.css: ${flag(CSS_EMBED.ok)}`);
