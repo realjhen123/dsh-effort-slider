@@ -271,13 +271,26 @@ const autoHtml = renderWith(autoState);
 // F5 回归：auto（模型未显式设置档位）时必须显示**真实默认档**（defaultEffort="medium" → 「中」），
 // 而不是旧实现那样用 count-1 兜底成「最高」。
 // 旧断言 `includes(">2<")` 永远为假（面板关闭时 readout 根本不渲染），靠 `||` 蒙混过关 —— 已修。
+// ★ 2026-10-02（用户要求「全都用英文」）：这里刻意**保留中文的假目录**（本机真宿主就是中文目录），
+//   于是下面这两条同时是"档位正确"与"中文目录名不上屏"的双重回归锁：
+//   目录说「中 / 最高」，界面必须显示英文梯子 Medium / Max。
 const autoPill = (autoHtml.match(/es-pill__name">([^<]*)</) || [])[1];
-check("auto 档位显示真实默认档（中）而不是最后一档（最高）",
-  autoPill === "中", `pill 显示「${autoPill}」`);
+check("auto 档位显示真实默认档（medium → Medium）而不是最后一档（max）",
+  autoPill === "Medium", `pill 显示「${autoPill}」`);
 
-// 对照：显式 max 时应当显示「最高」，证明上面那条不是恒真
+// 对照：显式 max 时应当显示「Max」，证明上面那条不是恒真
 const explicitPill = (renderWith(directorySnapshot(EFFORTS, "max")).match(/es-pill__name">([^<]*)</) || [])[1];
-check("显式最高档时显示「最高」（对照，避免断言恒真）", explicitPill === "最高", `pill 显示「${explicitPill}」`);
+check("显式最高档时显示 Max（对照，避免断言恒真）", explicitPill === "Max", `pill 显示「${explicitPill}」`);
+
+// 反向对照：目录**给的是英文名**时必须以目录原文为准（ASCII 偏好不是"一律忽略目录"）。
+{
+  const enPill = (renderWith(directorySnapshot([
+    { id: "low", name: "Light", description: "Light duty." },
+    { id: "max", name: "Maximum", description: "Full tilt." },
+  ], "max")).match(/es-pill__name">([^<]*)</) || [])[1];
+  check("目录给英文名时以目录原文为准（不吞掉模型的英文档位名）",
+    enPill === "Maximum", `pill 显示「${enPill}」`);
+}
 
 const oneEffort = renderWith(directorySnapshot([{ id: "only", name: "唯一" }], "only"));
 // 设计变更（2026-10-01 实机事故后）：不再因为"档位不够 / store 未就绪"整体隐身。
@@ -333,8 +346,8 @@ console.log("[3d] 首帧空 store → 收到通知后必须渲染出来（实机
   const after = serialize(React.createElement(component, props));
   check("store 更新后渲染出真实档位（不再是加载态）",
     after.includes("es-pill") && !after.includes("es-pill--loading"), after.slice(0, 240));
-  check("store 更新后档位名正确（显式 max → 最高）",
-    /es-pill__name">([^<]*)</.test(after) && after.match(/es-pill__name">([^<]*)</)[1] === "最高",
+  check("store 更新后档位名正确（显式 max → Max；目录给的中文名不上屏）",
+    /es-pill__name">([^<]*)</.test(after) && after.match(/es-pill__name">([^<]*)</)[1] === "Max",
     String(after.match(/es-pill__name">([^<]*)</)));
 }
 
