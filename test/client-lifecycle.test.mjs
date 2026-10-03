@@ -282,3 +282,23 @@ test("换会话后迟到的提交不能回滚或锁住新会话", async () => {
   assert.equal(harness.tree.props["data-failed"], "0");
   harness.unmount(); await flushPromises();
 });
+
+test("闪电按钮是纯装饰：点击只切换外观，不发请求也不提交档位", async () => {
+  const env = environment(), selections = [];
+  const harness = hookHarness(env, { commit(selection) { selections.push(selection); return Promise.resolve(true); } });
+  harness.flush();
+  harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
+  const bolt = harness.find("es-pill__bolt");
+  assert.ok(bolt, "展开面板里有闪电按钮");
+  assert.equal(bolt.props["data-on"], "0", "初始未点亮");
+  const requestsBefore = env.requests.length;
+  bolt.props.onClick({ stopPropagation() {} }); harness.flush();
+  assert.equal(harness.find("es-pill__bolt").props["data-on"], "1", "点击只点亮外观");
+  assert.equal(harness.tree.props["data-lightning"], "1");
+  assert.equal(env.requests.length, requestsBefore, "点击不产生任何宿主请求");
+  assert.equal(selections.length, 0, "点击不提交任何档位");
+  harness.find("es-pill__bolt").props.onClick({ stopPropagation() {} }); harness.flush();
+  assert.equal(harness.find("es-pill__bolt").props["data-on"], "0", "再点一次熄灭");
+  assert.equal(harness.tree.props["data-lightning"], undefined);
+  harness.unmount(); await flushPromises();
+});

@@ -31,6 +31,10 @@ It does **one thing**: switch the reasoning effort (writing the real `reasoningE
 - The level is spelled **`Ultra`**, not all-caps `ULTRA`.
 - A failed commit reverts to the previous level and shows a hint; a commit that does not land within 10 seconds stops waiting (the host operation is *not* cancelled), and a later host success still wins because the real directory state is authoritative.
 
+### Lightning button (decorative)
+- The expanded panel keeps a lightning button in the top-right corner: clicking it only flips its own lit/unlit look. It **calls no host endpoint, injects no prompt, and does not affect the reasoning level**.
+- It is kept purely for visual completeness; its `aria-label` says decorative.
+
 ### Skins
 - `holo` (hologram), `chrome` (liquid metal), `fluid` (fluid, **default**, with a particle fluid engine and a top-level star trail).
 - `nebula` (interstellar) was **retired on request**: it is only commented out of the skin array, `SKIN_LABELS` and all its CSS rules remain. To restore it, put `"nebula"` back and adjust `DEFAULT_SKIN`.

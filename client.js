@@ -984,6 +984,78 @@
     var useRef = React.useRef;
     var useSyncExternalStore = React.useSyncExternalStore;
 
+    var boltRef = useRef(null);
+
+    /**
+     * 系统是否要求"减少动态效果"。
+     * 本文件原先只在 CSS 里用 @media 处理，JS 侧没有判据 —— 这里补一个**局部**判据
+     * （不装全局监听：滑动条是单实例、只在挂载时判一次，切系统设置刷新即可生效）。
+     * matchMedia 在极少数环境不存在，所以整段带兜底，永远返回布尔。
+     */
+    function reduceMotion() {
+      try {
+        return typeof window !== "undefined"
+          && typeof window.matchMedia === "function"
+          && window.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
+      } catch (error) { return false; }
+    }
+
+    /**
+     * ★ 闪电形状：**内联 SVG**（无外部图片/SVG 文件、无额外请求）。
+     *
+     * 路径沿用 Anthropic 那套 24×24 闪电（与旧 clip-path 的多边形同源，不引新资源）。
+     * 渐变/流动全部由 CSS 承担（`stroke:url(#es-bolt-flow)` + stroke-dashoffset 动画），
+     * 这样减少动态效果的 @media 一进门就能把动画全停掉，JS 侧不用管动画。
+     *
+     * ⚠️ 用 `h("svg", …)` 而不是 innerHTML / dangerouslySetInnerHTML：
+     *    · innerHTML 不走命名空间，`<path>` 会被造到 HTML 命名空间里（不渲染）；
+     *    · dangerouslySetInnerHTML 是字符串处理，且与 children 互斥，未来加一个子节点
+     *      就会直接抛错。React 对 `h("svg")` 会走 createElementNS 的 SVG 命名空间。
+     *    下面 `boltTree()` 里还对命名空间做了断言——万一某个宿主 React 版本行为不同，
+     *    返回 null 也不影响按钮本身（只剩 aria-label 与透明背景，不会出现白色方块）。
+     *
+     * ⚠️ 这个按钮现在是**纯装饰**：点击只切换它自己的亮/灭外观，不触发任何宿主调用。
+     */
+    var BOLT_PATH = "M13 2 L3 14 h9 l-1 8 10-12 h-9 l1-8 z";
+    // 渐变 id：CSS 里 `.es-pill__bolt[data-on="1"] .es-bolt__line{stroke:url(#es-bolt-flow)}`
+    // 就是按这个名字找的。**两边必须一致** —— 改这里必须同时改 CSS（否则描边会整条不画）。
+    var BOLT_GRADIENT_ID = "es-bolt-flow";
+
+    function boltTree() {
+      var line = h("path", { key: "bolt-line", className: "es-bolt__line", d: BOLT_PATH });
+      // 命名空间自检：不在 SVG 命名空间里就整块放弃（宁可不画，也不要画出一个隐形黑块）
+      if (line && typeof line.namespaceURI === "string"
+        && line.namespaceURI.indexOf("2000/svg") === -1) return null;
+      // ★ 通电描边用的渐变。**必须真的给出这个 <linearGradient>**：
+      //   CSS 里的 `stroke:url(#es-bolt-flow)` 一旦找不到元素，按规范这条 paint 就是
+      //   "无效引用" → 整条描边**不画**（不是回退到 currentColor）。
+      var gradient = h("linearGradient", {
+        id: BOLT_GRADIENT_ID,
+        x1: "var(--es-bolt-x1, 0)", y1: "0",
+        x2: "var(--es-bolt-x2, 24)", y2: "24",
+        gradientUnits: "userSpaceOnUse",
+      },
+        h("stop", { offset: "0%", stopColor: "#ffffff" }),
+        h("stop", { offset: "45%", stopColor: "var(--es-bolt-a, #e8efff)" }),
+        h("stop", { offset: "100%", stopColor: "var(--es-bolt-b, #8fb4ff)" }),
+      );
+      // 减少动态效果时**不生成**"电流包"这一层：它是纯装饰，reduce 下连静态残影都不该有。
+      // ⚠️ 数组形式的 children 必须逐个带 key，否则 React 在真宿主里会打
+      //   `Each child in a list should have a unique "key" prop`。
+      var children = [h("defs", { key: "bolt-defs" }, gradient), line];
+      if (!reduceMotion()) {
+        // "电流包"：一条短亮线沿闪电轮廓流动，由 CSS 用实测 path 长度做 stroke-dashoffset
+        children.push(h("path", { key: "bolt-glowline", className: "es-bolt__glowline", d: BOLT_PATH }));
+      }
+      return h("svg", {
+        className: "es-bolt__svg",
+        viewBox: "0 0 24 24",
+        // 只当装饰：语义由 button 的 aria-label / aria-pressed 承担
+        "aria-hidden": "true",
+        focusable: "false",
+      }, children);
+    }
+
     // 必须用稳定引用版本，否则 React 判定快照每次都变 → 无限重渲染 → 卡死界面
     var readStore = hostSnapshot(store);
 
@@ -1043,6 +1115,14 @@
     var pulseState = useState(0);
     var pulse = pulseState[0];
     var bumpPulse = pulseState[1];
+    /**
+     * 闪电按钮（纯装饰）：只切换自己的亮/灭外观。
+     * 不写任何宿主状态、不发任何请求、不影响推理档位 —— 之所以还留一个状态，
+     * 是为了让按钮点下去像按钮（否则一个点了没反应的方块更像坏了）。
+     */
+    var boltOnState = useState(false);
+    var boltOn = boltOnState[0];
+    var setBoltOn = boltOnState[1];
     var rootRef = useRef(null);
     var railRef = useRef(null);
     /**
@@ -1146,6 +1226,26 @@
         document.removeEventListener("keydown", onKey);
       };
     }, [open]);
+
+    /**
+     * ★ 实测闪电 path 的总长，写进 `--es-bolt-len`（给 CSS 的"电流包"虚线用）。
+     *   · stroke-dasharray / stroke-dashoffset 是**像素量**，没法用百分比，
+     *     所以必须有一次真实测量。拿不到长度就退回 CSS 的兜底值 64。
+     *   · `getTotalLength()` 在"元素还没布局 / 不在 SVG 命名空间"时会抛，
+     *     整段包在 try/catch 里 —— 量不到只是少了流动的电流包，静态描边与渐变照旧。
+     *   · reduce 环境下不测量也不影响：CSS 的 @media 已经把流动动画停掉。
+     */
+    useEffect(function () {
+      var node = boltRef.current;
+      if (!node || typeof node.querySelector !== "function") return;
+      try {
+        var path = node.querySelector(".es-bolt__line");
+        if (path && typeof path.getTotalLength === "function") {
+          var len = path.getTotalLength();
+          if (isFinite(len) && len > 0) node.style.setProperty("--es-bolt-len", len.toFixed(2) + "px");
+        }
+      } catch (error) { /* 量不到长度：CSS 兜底，绝不影响按钮交互 */ }
+    }, []);
 
     // 阶段 5：mount 心跳。必须放在所有早退 return null 之前（hooks 规则）。
     // 只有「真的渲染出控件」才算挂载成功；隐身路径上报 error 并带原因，便于外部定位。
@@ -1501,6 +1601,25 @@
       h("div", { className: "es-head" },
         h("span", { className: "es-title" }, "Reasoning effort"),
         h("span", { className: "es-model" }, effort ? effort.modelName : "Loading…"),
+        // ★ 闪电按钮：面板**右上角**，脱离文档流（放进 position:relative 的 .es-head，
+        //   位置与任何文字宽度无关 —— 早先它放在 .es-foot 的 space-between 里，
+        //   拖动滑条时读数宽度变化会让它左右跳）。
+        //   ⚠️ 纯装饰：onClick 只切换本地外观，不调用任何宿主端点。
+        h("button", {
+          type: "button",
+          className: "es-pill__bolt",
+          ref: boltRef,
+          "data-on": boltOn ? "1" : "0",
+          "aria-pressed": boltOn ? "true" : "false",
+          "aria-label": "Lightning (decorative)",
+          title: "Lightning (decorative — no effect)",
+          disabled: loading,
+          onClick: function (event) {
+            event.stopPropagation();
+            setBoltOn(!boltOn);
+          },
+          onPointerDown: function (event) { event.stopPropagation(); },
+        }, boltTree()),
       ),
       h("div", { className: "es-desc" }, failed ? FAIL_HINT : effortDesc(current, shown, levelCount)),
       h("div", { className: "es-railWrap" },
@@ -1579,10 +1698,11 @@
       ref: rootRef,
       style: { "--pct": pct.toFixed(3) + "%", "--ratio": ratio.toFixed(4) },
     };
-    // ★ 根状态（契约 §4）：ULTRA 时才有 data-ultra="1"。
+    // ★ 根状态：ULTRA 时 data-ultra="1"；闪电按钮点亮时 data-lightning="1"（纯视觉）。
     //   用条件赋值而不是 `{...cond && {...}}` / 对象展开 —— 后者要 Babel 的
     //   object-rest-spread 插件，宿主加载器不做转译，老引擎上会直接语法错。
     if (isUltra) rootProps["data-ultra"] = "1";
+    if (boltOn) rootProps["data-lightning"] = "1";
     return h("div", rootProps, open ? panel : null, core);
   }
 
