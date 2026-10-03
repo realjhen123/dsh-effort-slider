@@ -144,10 +144,16 @@ export function createPolicyInjector(ctx, { log, resolve })
 **会话恢复期的 4 条硬约束**（违反不会即时报错，而是下次恢复会话时报
 `SessionPersistenceCorruptionError`，所以一条都不能错）：
 
-1. `id` 是非空字符串；2. `role === "user"`；3. `source.kind` 是非空字符串；4. `content` 是数组。
+1. `id` 是非空字符串；2. `role === "user"`；3. `source.kind` 是 **producer-owned** 的来源标识
+（非空字符串，且 V4 起**不得**是 V3 的 `"plugin"`）；4. `content` 是数组。
 
-`form: "instructions"`、`source.plugin` 均**不被运行时校验**（但按框架约定带上）。
+本插件使用 `source: { kind: "plugin:dsh-effort-slider", form: "instructions" }`：
+`kind` 形如 `plugin:<name>` 是 V4 迁移器（`rewritePluginSource`）为未改名的第三方插件
+生成的 producer-owned 标识；`form: "instructions"` 不被运行时校验，但按框架约定带上。
 
-**已知的可见性后果**：注入的文本会作为 `source.kind='plugin'` 的 user 消息进入会话日志
+> ⚠️ 写作 `{ kind: "plugin", plugin: "dsh-effort-slider" }`（V3 写法）会被 V4 原生写入校验拒绝，
+> 报错 `format v4 message requires a producer-owned source kind`。
+
+**已知的可见性后果**：注入的文本会作为 `source.kind='plugin:dsh-effort-slider'` 的 user 消息进入会话日志
 （DSH 自己的运行时上下文、`@pluginId` 参考上下文走的是同一条路），因此**在会话记录里可见**——
 这正好与"策略 chip 可读原文"的透明性目标一致，但不要再把它描述成"完全不可见"。
