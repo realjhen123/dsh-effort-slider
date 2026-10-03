@@ -19,7 +19,6 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
-import { createTurbo, TURBO_ENDPOINT } from "./turbo.mjs";
 
 const PACKAGE_ID = "dsh-effort-slider";
 const ENDPOINT = "/plugins/dsh-effort-slider/preferences";
@@ -102,10 +101,8 @@ function writePreference(file, skin) {
   writeChain = writeChain.then(async () => {
     const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
     try {
-      // 读-改-写：同一个文件里还住着 sessions（ULTRA/闪电的会话状态），
-      // 整体覆写成 `{ skin }` 会把它们一次抹掉。
-      // 2026-10-02 真实事故：用户改皮肤 → 文件只剩 `{ skin: "fluid" }` → 7 个会话的
-      // ultra/lightning 全部丢失（运行中的宿主还靠内存撑着，重启就彻底没了）。
+      // 读-改-写：不把文件整体覆写成 `{ skin }`，保留文件里可能存在的其它键
+      // （历史版本在这里存过 sessions；读-改-写能避免一改皮肤就把它们抹掉）。
       const current = readFileState(file);
       const next = { ...current, skin };
       mkdirSync(dirname(file), { recursive: true });
@@ -121,12 +118,12 @@ function writePreference(file, skin) {
   return writeChain;
 }
 
-/* ──────────────── turbo（ULTRA / 闪电）状态：与皮肤共用同一个 JSON ──────────────── */
+/* ──────────────── 偏好文件读写（只住着 skin；容忍历史遗留键） ──────────────── */
 
 /**
- * 偏好文件现在长这样：`{ skin, sessions: { "<sessionId>": { lightning, ultra } } }`。
+ * 偏好文件现在长这样：`{ skin }`（早期版本还写过 `sessions`，已随 ULTRA/闪电一起移除）。
  * 读写一律容忍脏数据：解析失败、字段类型不对、文件不存在，统统退化成"没有状态"。
- * 这一层出错只会让 ULTRA/闪电两个模式失效，**绝不允许**影响滑条本身。
+ * 这一层出错只影响皮肤，**绝不允许**影响滑条本身。
  */
 function readFileState(file) {
   try {
@@ -136,38 +133,6 @@ function readFileState(file) {
     if (error?.code !== "ENOENT") warn(`读取偏好文件失败（按空状态处理）：${String(error)}`);
     return {};
   }
-}
-
-function readSessions(file) {
-  const raw = readFileState(file);
-  const source = raw.sessions;
-  if (source === null || typeof source !== "object" || Array.isArray(source)) return {};
-  const out = {};
-  for (const [id, value] of Object.entries(source)) {
-    if (value === null || typeof value !== "object") continue;
-    out[id] = { lightning: value.lightning === true, ultra: value.ultra === true };
-  }
-  return out;
-}
-
-/** 读-改-写整体串行化（与皮肤偏好共用 writeChain），每次唯一临时文件后原子 rename。 */
-function writeState(file, mutate) {
-  writeChain = writeChain.then(async () => {
-    const temp = `${file}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-    try {
-      const current = readFileState(file);
-      const next = mutate(current) ?? current;
-      mkdirSync(dirname(file), { recursive: true });
-      writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-      renameSync(temp, file);
-      return true;
-    } catch (error) {
-      warn(`写入 turbo 状态失败：${String(error)}`);
-      try { unlinkSync(temp); } catch { /* 残留临时文件不可怕，不能因此抛错 */ }
-      return false;
-    }
-  });
-  return writeChain;
 }
 
 /* ───────────────────── 客户端 bundle：启动关键路径只做静态检查 ───────────────────── */
@@ -432,31 +397,6 @@ function setup(ctx) {
     timers.push(timer);
     return () => clearTimeout(timer);
   }, "effort-slider: heartbeat verdict");
-
-  /**
-   * ULTRA / LIGHTNING：会话状态 + `/turbo` 路由 + 舰队 tok/s 计量 + 策略注入。
-   *
-   * 用 `ctx.effect` 拿到确切的卸载时机，并**整体包在 try/catch 里**：这一层是锦上添花，
-   * 它坏掉绝不能让滑条跟着坏（2026-10-01「重启后看不到滑条」那次事故的形状就是
-   * "一个新能力失败把整个 apply 拖下水"，那次之后所有新能力都按这个模式接线）。
-   */
-  ctx.effect(() => {
-    let turbo = null;
-    try {
-      turbo = createTurbo(ctx, {
-        log: (message) => info(message),
-        readSessions: () => readSessions(file),
-        writeSessions: (sessions) => writeState(file, (current) => ({ ...current, sessions })),
-        readJson,
-        endpoint: TURBO_ENDPOINT,
-      });
-    } catch (error) {
-      fail(`turbo（ULTRA/闪电）初始化失败，已跳过（不影响滑条本身）：${String(error)}`);
-    }
-    return () => {
-      try { turbo?.dispose?.(); } catch { /* 卸载异常不冒泡 */ }
-    };
-  }, "effort-slider: ultra + lightning + fleet meter");
 
   info(`已就绪（皮肤偏好文件：${file}；心跳 nonce：${runNonce.slice(0, 8)}…）`);
 }

@@ -42,37 +42,10 @@
   /** 写回失败时的统一文案：面板描述行 + 收起态提示都用它，避免两处文案漂移。 */
   var FAIL_HINT = "Switch failed — reverted to the previous level.";
 
-  /* ─────────────────── TURBO：ULTRA 档位 / 闪电 / tok/s 读数 ─────────────────── */
+  /* ─────────────────── ULTRA 档位（纯展示档，不再注入任何东西）─────────────────── */
 
-  /**
-   * 宿主路由（TURBO-CONTRACT.md §3.4）。
-   *  · GET   ?session=<id> → { ok, lightning, ultra, rate, gen, agents, generating, total, policy, stamp }
-   *  · PATCH body { session, lightning?, ultra? } → { ok, lightning, ultra }
-   * 全部 best-effort：404 / 网络失败 / 非 JSON 一律当作「没有数据」，绝不冒泡。
-   */
-  var TURBO_ENDPOINT = "/plugins/dsh-effort-slider/turbo";
-  /** 读数轮询周期。只在「闪电开启 或 rate > 0」时跑，且页面隐藏时整轮跳过。 */
-  var TURBO_POLL_MS = 1000;
-  /** 连续失败到这个次数就彻底停止轮询（宿主没有这条路由时不要一直打请求）。 */
-  var TURBO_MAX_FAILURES = 3;
-  /** 轮询/请求之间的最短间隔：两个 effect 会各拉一次，避免同一帧重复打宿主。 */
-  var TURBO_MIN_FETCH_GAP_MS = 400;
-  /** A disconnected route must release both the request and the UI promise. */
-  var TURBO_REQUEST_TIMEOUT_MS = 5000;
   /** Only the slider's wait is bounded; the host selection itself is not cancelled. */
   var MODEL_SELECTION_TIMEOUT_MS = 10000;
-  /**
-   * `--es-rate` 的归一化分母（**纯视觉强度**，不是数据口径）。
-   * 读数本身永远显示真实整数；这里只把 0~20000 tok/s 映射成 CSS 用的 0~1 发光强度，
-   * 超过就夹到 1（发光到顶不再变），所以它不影响任何显示出来的数字。
-   */
-  var RATE_FULL_SCALE = 20000;
-
-  /** 这个会话的 turbo 端点；拿不到 sessionId 时返回 ""（调用方据此跳过 fetch）。 */
-  function turboURL(sessionId) {
-    if (sessionId === undefined || sessionId === null || sessionId === "") return "";
-    return TURBO_ENDPOINT + "?session=" + encodeURIComponent(String(sessionId));
-  }
 
   /**
    * 展示层档位表 = 模型目录里真实可用的 efforts **+ 追加的 ULTRA 格**。
@@ -94,7 +67,7 @@
     name: "Ultra",
     label: "Ultra",
     //   说明要**短**（用户："注释太长了，不高级"）：面板那是给档位名做注脚的一行小字，
-    //   不是文档。ULTRA 的完整契约在注入的策略正文里（policy.mjs），这里只留一句口号。
+    //   不是文档。ULTRA 是纯展示档：选中它只会把真实推理等级写到最后一个真实档位（MAX）。
     description: "MAX effort, maximum rigor.",
     ultra: true,
   };
@@ -144,58 +117,6 @@
 
   /** 空动作。降级路径（inject 失败）用它顶替 load，保证 props 形状永远是完整的。 */
   function noop() {}
-
-  /**
-   * best-effort 的 JSON fetch：拿不到就返回 rejected Promise，由调用方各自兜住。
-   * ⚠️ 这里**故意**不吞异常 —— 调用方要用"失败"来驱动 fail-open 分支（回滚 / 停止轮询）。
-   */
-  function turboFetch(url, init) {
-    return new Promise(function (resolve, reject) {
-      var options = Object.assign({}, init || {});
-      var externalSignal = options.signal;
-      var controller = typeof AbortController === "function" ? new AbortController() : null;
-      var settled = false;
-      var timer = null;
-      function finish(error, value) {
-        if (settled) return;
-        settled = true;
-        if (timer !== null) clearTimeout(timer);
-        if (externalSignal && typeof externalSignal.removeEventListener === "function") {
-          externalSignal.removeEventListener("abort", abort);
-        }
-        if (error) reject(error); else resolve(value);
-      }
-      function cancel(name, message) {
-        var error = new Error(message);
-        error.name = name;
-        // Settle first: even a transport that ignores abort cannot keep callers pending.
-        finish(error);
-        if (controller) controller.abort();
-      }
-      function abort() { cancel("AbortError", "turbo request cancelled"); }
-      if (externalSignal && externalSignal.aborted) { abort(); return; }
-      if (externalSignal && typeof externalSignal.addEventListener === "function") {
-        externalSignal.addEventListener("abort", abort, { once: true });
-      }
-      if (controller) options.signal = controller.signal;
-      timer = setTimeout(function () {
-        cancel("TimeoutError", "turbo request timed out");
-      }, TURBO_REQUEST_TIMEOUT_MS);
-      try {
-        Promise.resolve(fetch(url, options)).then(function (response) {
-          if (!response || !response.ok) throw new Error("turbo http " + String(response && response.status));
-          return response.json();
-        }).then(function (body) { finish(null, body); }, function (error) { finish(error); });
-      } catch (error) { finish(error); }
-    });
-  }
-
-  /** 把宿主给的值收成非负整数；脏数据一律当 0（绝不显示 NaN / 负数）。 */
-  function safeCount(value) {
-    var num = Number(value);
-    if (!isFinite(num) || num <= 0) return 0;
-    return Math.floor(num);
-  }
 
   /* ────────────────────── 读取模型推理档位 ────────────────────── */
 
@@ -1063,97 +984,6 @@
     var useRef = React.useRef;
     var useSyncExternalStore = React.useSyncExternalStore;
 
-    var boltRef = useRef(null);
-
-    /**
-     * 系统是否要求"减少动态效果"。
-     * 本文件原先只在 CSS 里用 @media 处理，JS 侧没有判据 —— 这里补一个**局部**判据
-     * （不装全局监听：滑动条是单实例、只在挂载时判一次，切系统设置刷新即可生效）。
-     * matchMedia 在极少数环境不存在，所以整段带兜底，永远返回布尔。
-     */
-    function reduceMotion() {
-      try {
-        return typeof window !== "undefined"
-          && typeof window.matchMedia === "function"
-          && window.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
-      } catch (error) { return false; }
-    }
-
-    /**
-     * ★ 闪电形状：**内联 SVG**（无外部图片/SVG 文件、无额外请求）。
-     *
-     * 为什么必须改成 SVG 描边：旧画法
-     *   `.es-pill__bolt::after{inset:1.5px;padding:1.9px;mask:linear-gradient(#000 0 0)…
-     *    …content-box,…;mask-composite:exclude}` + `clip-path:闪电多边形`
-     * 看着像描边，其实那圈环是按**矩形盒子的周长**算出来的，再与闪电 clip-path 求交，
-     * 只剩闪电最外缘几段残片 —— 取证图 bolt-probe.png（×2 全页）里面板右上角只有
-     * 一小段白短线，既不是闪电也不是轮廓。所以「白边看不到」是**几何问题**，
-     * 把 opacity .34→.62、颜色换 #fff、描边加粗 1.5→1.9px 全都治不了它。
-     * `stroke` 沿路径中心线两侧各画一半宽度，轮廓才是几何精确的。
-     *
-     * 路径沿用 Anthropic 那套 24×24 闪电（与旧 clip-path 的多边形同源，不引新资源）。
-     * 渐变/流动全部由 CSS 承担（`stroke:url(#es-bolt-flow)` + stroke-dashoffset 动画），
-     * 这样减少动态效果的 @media 一进门就能把动画全停掉，JS 侧不用管动画。
-     *
-     * ⚠️ 用 `h("svg", …)` 而不是 innerHTML / dangerouslySetInnerHTML：
-     *    · innerHTML 不走命名空间，`<path>` 会被造到 HTML 命名空间里（不渲染）；
-     *    · dangerouslySetInnerHTML 是字符串处理，且与 children 互斥，未来加一个子节点
-     *      就会直接抛错。React 对 `h("svg")` 会走 createElementNS 的 SVG 命名空间
-     *      （本文件里 `<canvas>` / `.es-rail__fluid` 都靠这套渲染，同一个 runtime）。
-     *    下面 `boltTree()` 里还对命名空间做了断言——万一某个宿主 React 版本行为不同，
-     *    返回 null 也不影响按钮本身（只剩 aria-label 与透明背景，不会出现白色方块）。
-     */
-    var BOLT_PATH = "M13 2 L3 14 h9 l-1 8 10-12 h-9 l1-8 z";
-    // 渐变 id：CSS 里 `.es-pill__bolt[data-on="1"] .es-bolt__line{stroke:url(#es-bolt-flow)}`
-    // 就是按这个名字找的。**两边必须一致** —— 改这里必须同时改 CSS（否则描边会整条不画）。
-    var BOLT_GRADIENT_ID = "es-bolt-flow";
-
-    function boltTree() {
-      var line = h("path", { key: "bolt-line", className: "es-bolt__line", d: BOLT_PATH });
-      // 命名空间自检：不在 SVG 命名空间里就整块放弃（宁可不画，也不要画出一个隐形黑块）
-      if (line && typeof line.namespaceURI === "string"
-        && line.namespaceURI.indexOf("2000/svg") === -1) return null;
-      // ★ 通电描边用的渐变。**必须真的给出这个 <linearGradient>**：
-      //   CSS 里的 `stroke:url(#es-bolt-flow)` 一旦找不到元素，按规范这条 paint 就是
-      //   "无效引用" → 整条描边**不画**（不是回退到 currentColor）。实测过这个坑：
-      //   通电态只剩一颗流动的小亮点（电流包），闪电轮廓整个消失。
-      //   ⚠️ "流动"不在 SVG 侧做：`<animate attributeName="x1">` 只能覆盖元素上**已存在**的
-      //   属性，而这个渐变没有 x1/x2 时 SMIL 不会凭空造一个（实测：animate 在 DOM 里、
-      //   值恒为空串、渐变不动）。所以 x1/x2 走 CSS @property + @keyframes（见
-      //   effort-slider.css 的 es-bolt-sweep）：这里只把几何接到那两个变量上。
-      //   ⚠️ 必须写 `var(--es-bolt-x1, 0)` 而**不能**写 `inherit`：presentation attribute
-      //   写 inherit 时继承的是同名属性（x1），而不是我的自定义属性 —— 实测过，
-      //   那样动画照跑、渐变却一动不动。逗号后的 0 / 24 是"变量没定义"时的静态兜底。
-      var gradient = h("linearGradient", {
-        id: BOLT_GRADIENT_ID,
-        x1: "var(--es-bolt-x1, 0)", y1: "0",
-        x2: "var(--es-bolt-x2, 24)", y2: "24",
-        gradientUnits: "userSpaceOnUse",
-      },
-        h("stop", { offset: "0%", stopColor: "#ffffff" }),
-        h("stop", { offset: "45%", stopColor: "var(--es-bolt-a, #e8efff)" }),
-        h("stop", { offset: "100%", stopColor: "var(--es-bolt-b, #8fb4ff)" }),
-      );
-      // 减少动态效果时**不生成**"电流包"这一层：它是纯装饰，reduce 下连静态残影都不该有。
-      //   （CSS 里另有 @media 兜底，两道保险 —— matchMedia 不可用时 CSS 仍然生效。）
-      // ⚠️ 数组形式的 children 必须逐个带 key，否则 React 在真宿主里会打
-      //   `Each child in a list should have a unique "key" prop` —— 这是从**真产物 harness 控制台**
-      //   里抓到的（harness 的 console.error 计数 = 1，栈顶是 `at defs`）。所以这里给 defs 与
-      //   两条 path 都补上稳定的 key；将来再加子节点也必须带。
-      var children = [h("defs", { key: "bolt-defs" }, gradient), line];
-      if (!reduceMotion()) {
-        // "电流包"：一条短亮线沿闪电轮廓流动，由 CSS 用实测 path 长度做 stroke-dashoffset
-        children.push(h("path", { key: "bolt-glowline", className: "es-bolt__glowline", d: BOLT_PATH }));
-      }
-      return h("svg", {
-        className: "es-bolt__svg",
-        viewBox: "0 0 24 24",
-        // 只当装饰：语义由 button 的 aria-label / aria-pressed 承担
-        "aria-hidden": "true",
-        focusable: "false",
-      }, children);
-    }
-
     // 必须用稳定引用版本，否则 React 判定快照每次都变 → 无限重渲染 → 卡死界面
     var readStore = hostSnapshot(store);
 
@@ -1188,7 +1018,7 @@
     var levels = levelsOf(efforts);
     var levelCount = levels.length;
     var realEffortCount = count;
-    /** 本组件所属会话（宿主 inject 时传入）：turbo 路由靠它精确定位，子代理/其它会话不受影响。 */
+    /** 本组件所属会话（宿主 inject 时传入）：换会话时作废在途提交并复位面板。 */
     var sessionId = props.sessionId || "";
     // committed 的语义：0-based 的当前档位下标；-1 专指「拿不到有效档位」。
     // 模型没显式设档（auto）时 pickEffort 已经把默认档解析成 index 了，这里必须照用：
@@ -1213,98 +1043,21 @@
     var pulseState = useState(0);
     var pulse = pulseState[0];
     var bumpPulse = pulseState[1];
-    // ── TURBO 状态（闪电默认关：真正的默认值在宿主侧持久化，这里只做页面内的即时状态）──
-    var lightningState = useState(false);
-    var lightning = lightningState[0];
-    var setLightning = lightningState[1];
-    // 最近窗口的 token 吞吐（tok/s，整数，宿主算好）。0 = 没有数据 → 读数整块隐藏。
-    var rateState = useState(0);
-    var rate = rateState[0];
-    var setRate = rateState[1];
-    // 策略原文（英文）。空串 = 两个模式都没开 → chip 显示"未注入策略"且不可展开。
-    var policyState = useState("");
-    var policy = policyState[0];
-    var setPolicy = policyState[1];
-    var policyOpenState = useState(false);
-    var policyOpen = policyOpenState[0];
-    var setPolicyOpen = policyOpenState[1];
-    /**
-     * ULTRA 位（宿主持久化的那个）。
-     * 页面加载时从宿主读回 → 刷新后**第 6 格仍然是选中的**（否则会跳回 MAX，
-     * 而宿主那边还在注入 rigor 策略，界面与后端不一致）。
-     * 用户每次换档会覆盖它（真实档位 = false，ULTRA = true），之后不再被心跳覆盖。
-     */
-    var ultraOnState = useState(false);
-    var ultraOn = ultraOnState[0];
-    var setUltraOn = ultraOnState[1];
-    var turboReadyState = useState(false);
-    var turboReady = turboReadyState[0];
-    var setTurboReady = turboReadyState[1];
-
     var rootRef = useRef(null);
     var railRef = useRef(null);
-    /** TURBO 轮询的失败计数 / 停止闸：连续 TURBO_MAX_FAILURES 次失败就不再打请求。 */
-    var turboFailuresRef = useRef(0);
-    var turboStoppedRef = useRef(false);
-    /** 两次 turbo 请求的最小间隔（见 TURBO_MIN_FETCH_GAP_MS）。 */
-    var turboFetchedAtRef = useRef(0);
-    /** 最近一次真正写进 --es-rate 的强度：用来判断"要不要清掉"上次残留的发光。 */
-    var rateVarRef = useRef(-1);
-    /**
-     * 最近一次 push 给宿主的 ULTRA 状态（null = 还没推过）。
-     * 拖动经过顶格两格时会反复触发渲染，靠它去重，避免同一状态反复 PATCH。
-     */
-    var ultraSentRef = useRef(null);
     /**
      * 顶格索引（= 真实档位数 - 1），渲染期写入、rAF 里读。
      * 用它让引擎按索引判顶格（isTopPct）：加不加 ULTRA 格，MAX 的效果都不变。
      */
     var lastTopIndexRef = useRef(-1);
     /**
-     * 当前渲染这一轮的「推 ULTRA 位」函数（每次渲染重新赋值）。
-     * 之所以走 ref：`next()` 里有一条"档位没变、只有 ULTRA 位要变"的早退分支，
-     * 它必须能在**不改目录**的前提下把位推给宿主，而那个函数要用到闭包里的 wantUltra。
+     * 本次挂载里的提交序号 / 在途选择。
+     * `next()` 用它做两件事：
+     *   · 取消上一条还没落地的选择（用户连续换档时不并发写目录）；
+     *   · 判定一条迟到的 Promise 是否已经过期（换会话 / 卸载 / 新提交都会 +1）。
      */
-    var pushUltraRef = useRef(noop);
-    /** 宿主返回的 ultra 是否已经采纳过一次（只采纳首次，之后以本地最新操作为准）。 */
-    var ultraSyncedRef = useRef(false);
-    // React owns each candidate scope until commit. An abandoned concurrent
-    // render must not invalidate the still-visible session's effects.
-    var turboScopeRef = useRef(null);
-    var turboScopeMemoRef = useRef(null);
-    function newTurboScope() {
-      return { sessionId: sessionId, active: false, generation: 0,
-        controllers: new Set(), readVersion: 0, mutationVersion: 0, lightningVersion: 0,
-        commitVersion: 0, ultraVersion: 0, hydrated: false, selection: null };
-    }
-    var turboScope;
-    if (typeof React.useMemo === "function") {
-      turboScope = React.useMemo(newTurboScope, [sessionId]);
-    } else {
-      // Older hosts and the existing offline render shims omit useMemo.
-      if (!turboScopeMemoRef.current || turboScopeMemoRef.current.sessionId !== sessionId) {
-        turboScopeMemoRef.current = newTurboScope();
-      }
-      turboScope = turboScopeMemoRef.current;
-    }
-    function turboCurrent(scope, generation) {
-      return scope === turboScopeRef.current && scope.active && scope.generation === generation;
-    }
-    function scopedTurboFetch(url, init, scope, owner) {
-      var controller = typeof AbortController === "function" ? new AbortController() : null;
-      if (controller) {
-        scope.controllers.add(controller);
-        if (owner) owner.controller = controller;
-        init = Object.assign({}, init, { signal: controller.signal });
-      }
-      function release() {
-        if (controller) scope.controllers.delete(controller);
-        if (owner && owner.controller === controller) owner.controller = null;
-      }
-      return turboFetch(url, init).then(function (body) { release(); return body; }, function (error) {
-        release(); throw error;
-      });
-    }
+    var commitVersionRef = useRef(0);
+    var selectionRef = useRef(null);
     // ② 吸附动画：珠子本体（往它身上写内联 transition-duration，覆盖 CSS 里的固定时长）
     var knobRef = useRef(null);
     // 流体引擎的落点：canvas 挂在轨道里（见下面的 es-rail__fluid）
@@ -1328,260 +1081,27 @@
       setDraft(value);
     }
 
-    /* ────────────── TURBO：宿主读写（闪电 / ULTRA / 舰队 tok/s）──────────────
-       全部 fail-open —— 这个插件的全部历史就是"静默失效"：宿主没有这些路由
-       （404）、网络断了、返回非 JSON，都必须只是"没有数据"，
-       绝不允许冒泡成渲染异常（渲染异常会被错误边界整块隐身，用户直接丢控件）。 */
-
     /**
-     * 这轮要不要继续轮询：**只在闪电开启或已经有读数时跑**。
-     * 两个模式都没开时一次都不打请求（不做无意义的后台流量）。
+     * 会话切换 / 卸载时：作废在途提交，复位本地面板状态。
+     * 切换推理档位只写模型目录（`commit`），不依赖任何宿主路由。
      */
-    var turboPolling = lightning || rate > 0;
-
-    /**
-     * 从宿主读一次 turbo 快照。返回的 Promise：
-     *   · resolve = 本轮心跳（成功或已停止轮询，都算"正常结束"）
-     *   · reject  = 这一次真的失败了（调用方据此决定是否停表）
-     * 组件卸载后不再 setState（否则 React 会警告，虽然不影响观感）。
-     */
-    function turboRead(owner) {
-      var scope = turboScope;
-      var generation = scope.generation;
-      var url = turboURL(sessionId);
-      if (url === "" || !turboCurrent(scope, generation) || turboStoppedRef.current) return Promise.resolve();
-      var now = Date.now();
-      if (now - turboFetchedAtRef.current < TURBO_MIN_FETCH_GAP_MS) return Promise.resolve();
-      turboFetchedAtRef.current = now;
-      var version = ++scope.readVersion;
-      var mutation = scope.mutationVersion;
-      var lightningVersion = scope.lightningVersion;
-      var ultraVersion = scope.ultraVersion;
-      function current() {
-        return turboCurrent(scope, generation) && version === scope.readVersion
-          && (!owner || owner.active);
+    useEffect(function () {
+      commitVersionRef.current += 1;
+      if (selectionRef.current) {
+        selectionRef.current.cancel();
+        selectionRef.current = null;
       }
-      return scopedTurboFetch(url, { headers: { Accept: "application/json" } }, scope, owner).then(function (body) {
-        if (!current()) return;
-        turboFailuresRef.current = 0;
-        if (!body || typeof body !== "object") return;
-        // 宿主回的是权威值：闪电开关 / ULTRA 位 / 读数都靠它读回（页面刷新后也能恢复）
-        if (lightningVersion === scope.lightningVersion) setLightning(body.lightning === true);
-        if (ultraVersion === scope.ultraVersion) setUltraOn(body.ultra === true);
-        setRate(safeCount(body.rate));
-        if (mutation === scope.mutationVersion) setPolicy(typeof body.policy === "string" ? body.policy : "");
-        scope.hydrated = true;
-        setTurboReady(true);
-      }, function (error) {
-        if (!current() || (error && error.name === "AbortError")) return;
-        turboFailuresRef.current += 1;
-        // 连续失败到阈值就停表：宿主要么没实现这条路由，要么就是连不上，
-        // 继续打只是浪费 —— 控件本身照旧可用（本地乐观状态）。
-        if (turboFailuresRef.current >= TURBO_MAX_FAILURES) turboStoppedRef.current = true;
-        throw error;
-      });
-    }
-
-    /**
-     * 写回闪电 / ULTRA 状态（PATCH）。
-     * **不吞异常**：调用方拿失败来做乐观回滚（.then(ok, rollback) 的 ok 分支）。
-     */
-    function turboPatch(patch) {
-      var scope = turboScope;
-      var generation = scope.generation;
-      var url = turboURL(sessionId);
-      if (url === "" || !turboCurrent(scope, generation) || turboStoppedRef.current) return Promise.resolve(false);
-      var mutation = ++scope.mutationVersion;
-      var payload = { session: sessionId };
-      if (patch && patch.lightning !== undefined) payload.lightning = patch.lightning === true;
-      if (patch && patch.ultra !== undefined) {
-        payload.ultra = patch.ultra === true;
-        scope.ultraVersion += 1;
-      }
-      return scopedTurboFetch(TURBO_ENDPOINT, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }, scope).then(function (body) {
-        if (!turboCurrent(scope, generation)) return false;
-        if (!body || body.ok !== true) throw new Error("turbo patch rejected");
-        // 宿主回的字段是权威值；缺字段就沿用我们发出去的那个（别把开关闪一下）
-        if (mutation === scope.mutationVersion && typeof body.lightning === "boolean") setLightning(body.lightning);
-        return true;
-      });
-    }
-
-    /**
-     * 点击闪电：**乐观更新 + 失败回滚**。
-     * 整段包在 try/catch 里 —— 任何异常（fetch 同步抛 / 闭包里的旧状态）都不许冒泡到 pill，
-     * 更不能让 pill 的 onClick 抛错后吞掉后续交互。
-     */
-    function toggleLightning(event) {
-      if (event && typeof event.stopPropagation === "function") event.stopPropagation();
-      var previous = lightning;
-      var nextValue = !previous;
-      var scope = turboScope;
-      var generation = scope.generation;
-      var operation = ++scope.lightningVersion;
-      setLightning(nextValue);
-      try {
-        turboPatch({ lightning: nextValue }).then(function (ok) {
-          if (!ok && turboCurrent(scope, generation) && operation === scope.lightningVersion) setLightning(previous);
-        }, function () {
-          if (turboCurrent(scope, generation) && operation === scope.lightningVersion) setLightning(previous);
-        });
-      } catch (error) {
-        if (turboCurrent(scope, generation) && operation === scope.lightningVersion) setLightning(previous);
-      }
-    }
-
-    // 挂载时（或会话变化时）读一次：闪电的默认值（关）与读数都持久化在宿主侧，页面加载要读回来。
-    var useScopeEffect = typeof React.useLayoutEffect === "function" ? React.useLayoutEffect : useEffect;
-    useScopeEffect(function () {
-      var scope = turboScope;
-      turboScopeRef.current = scope;
-      scope.active = true;
-      scope.generation += 1;
-      scope.hydrated = false;
-      turboFailuresRef.current = 0;
-      turboStoppedRef.current = false;
-      turboFetchedAtRef.current = 0;
-      ultraSentRef.current = null;
-      ultraSyncedRef.current = false;
-      setLightning(false);
-      setUltraOn(false);
-      setRate(0);
-      setPolicy("");
-      setPolicyOpen(false);
       setBusy(false);
       setFailed(false);
-      setTurboReady(false);
       putDraft(committed);
-      try {
-        turboRead().catch(noop);
-      } catch (error) { /* 端点不可用：全部保持本地默认值 */ }
       return function () {
-        scope.active = false;
-        scope.generation += 1;
-        scope.controllers.forEach(function (controller) { controller.abort(); });
-        scope.controllers.clear();
-        if (scope.selection) scope.selection.cancel();
+        commitVersionRef.current += 1;
+        if (selectionRef.current) {
+          selectionRef.current.cancel();
+          selectionRef.current = null;
+        }
       };
     }, [sessionId]);
-
-    // 读数轮询：仅「闪电开启 或 rate > 0」时进行；隐藏页整轮跳过；卸载清表。
-    useEffect(function () {
-      if (!turboPolling) return undefined;
-      var timer = null;
-      var owner = { active: true, controller: null };
-      var scope = turboScope;
-      var generation = scope.generation;
-      function current() { return owner.active && turboCurrent(scope, generation); }
-      function tick() {
-        timer = null;
-        if (!current() || turboStoppedRef.current) return;
-        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
-          timer = setTimeout(tick, TURBO_POLL_MS);   // 隐藏时跳过本轮，仍然保活
-          return;
-        }
-        var request;
-        try { request = turboRead(owner); } catch (error) { request = Promise.reject(error); }
-        request.catch(noop).then(function () {
-          if (!current() || turboStoppedRef.current) return;
-          timer = setTimeout(tick, TURBO_POLL_MS);
-        });
-      }
-      timer = setTimeout(tick, TURBO_POLL_MS);
-      return function () {
-        owner.active = false;
-        if (timer !== null) clearTimeout(timer);
-        timer = null;
-        if (owner.controller) owner.controller.abort();
-      };
-    }, [turboPolling, sessionId]);
-
-    // 发光强度：把速率归一到 0~1 写到根节点的 CSS 变量上（纯视觉，不影响任何显示的数字）。
-    // 用 .style.setProperty 而不是 React style —— 数字每秒都在变，走渲染会白白重渲染整棵子树。
-    useEffect(function () {
-      var node = rootRef.current;
-      if (!node || !node.style || typeof node.style.setProperty !== "function") return;
-      try {
-        var strength = rate > 0 ? Math.min(1, rate / RATE_FULL_SCALE) : 0;
-        if (rateVarRef.current === strength) return;
-        rateVarRef.current = strength;
-        node.style.setProperty("--es-rate", strength.toFixed(3));
-      } catch (error) { /* 写样式失败不影响读数本身 */ }
-    });
-
-    /**
-     * ★ 实测闪电 path 的总长，写进 `--es-bolt-len`（给 CSS 的"电流包"虚线用）。
-     *   · stroke-dasharray / stroke-dashoffset 是**像素量**，没法用百分比，
-     *     所以必须有一次真实测量。拿不到长度就退回 CSS 的兜底值 64。
-     *   · `getTotalLength()` 在"元素还没布局 / 不在 SVG 命名空间"时会抛，
-     *     整段包在 try/catch 里 —— 量不到只是少了流动的电流包，静态描边与渐变照旧。
-     *   · reduce 环境下不测量也不影响：CSS 的 @media 已经把流动动画停掉。
-     */
-    useEffect(function () {
-      var node = boltRef.current;
-      if (!node || typeof node.querySelector !== "function") return;
-      try {
-        var path = node.querySelector(".es-bolt__line");
-        if (path && typeof path.getTotalLength === "function") {
-          var len = path.getTotalLength();
-          if (isFinite(len) && len > 0) node.style.setProperty("--es-bolt-len", len.toFixed(2) + "px");
-        }
-      } catch (error) { /* 量不到长度：CSS 兜底，绝不影响按钮交互 */ }
-    }, []);
-
-    /**
-     * 把宿主返回的 `ultra` 补回**本地还没表态过**时的显示。
-     * 只在首次采纳（ultraSyncedRef）——之后以用户操作为准，否则每秒一次的心跳会和
-     * 用户刚点的档位打架（"怎么又跳回 ULTRA 了"）。
-     * 判据用**本地 draft**（用户刚点的那个），而不是 committed：committed 反映的是
-     * 模型目录，而 ULTRA 与 MAX 在目录里是同一个 effort id，分不出来。
-     */
-    useEffect(function () {
-      if (!turboReady || !turboScope.hydrated || ultraSyncedRef.current || loading) return;
-      if (draftRef.current !== realEffortCount && draftRef.current !== realEffortCount - 1) return;
-      ultraSyncedRef.current = true;
-      if (!ultraOn) return;
-      // ★ 用 `next()` 而不是 `putDraft()`（用户新要求：「ultra 要自动把推理等级切换到 MAX」）。
-      //   `putDraft` 只搬动界面上的那一格，**不写模型目录** —— 于是"刷新后界面停在 ULTRA、
-      //   实际推理等级却还停在上次那个档"这种界面与后端不一致的状态会活下来。
-      //   走 `next(realEffortCount)` 才是唯一写入口：它会把最后一个真实档位（MAX）的 id
-      //   写进模型目录，并顺带把 ULTRA 位推给宿主（去重后是 no-op）。
-      //   不变量：**只要界面是 ULTRA，实际推理等级就一定是 MAX**。
-      next(realEffortCount);
-    }, [turboReady, ultraOn, loading, realEffortCount]);
-
-    /**
-     * ★ Ultra 位的**纠偏**效果。
-     *
-     * 起因（用户实测）：「策略切换确实正确吗？我用的可是 low 等级，理论上你不应该收到策略吧。」
-     * —— 用户的推理是对的，而且当时确实注入了 Ultra 策略。
-     *
-     * 根因：宿主那边的 `ultra` 位此前**只在 `next()` 提交成功之后**推。可档位还能被**别的入口**改掉：
-     *   · DSH 自己的模型菜单（下面那条「外部入口改了档位，收起态与读数跟随」的效果）；
-     *   · 宿主里上一次留下的持久化值（重启后客户端会把它读回来）。
-     * 这些路径**都不会**推 `ultra:false`，于是宿主一直以为你还停在 Ultra 上 ——
-     * 策略就被一直注入。问题不在注入逻辑，而在**这个位没有人维护**。
-     *
-     * 修法：把 `ultra` 当成**展示态的派生物**持续纠偏 —— 只要界面不在 Ultra 那一格，就补推一次
-     * `false`（去重 + fail-open）。推 `true` 仍然只走提交成功那条路（避免"档位没切成、策略却注入了"）。
-     */
-    useEffect(function () {
-      if (!turboReady || !turboScope.hydrated || loading || !sessionId) return;
-      if (shown === realEffortCount || draftRef.current === realEffortCount) return;
-      if (ultraSentRef.current === false) return;  // 已经纠偏过
-      ultraSentRef.current = false;
-      var scope = turboScope;
-      var generation = scope.generation;
-      try {
-        turboPatch({ ultra: false }).then(noop, function () {
-          if (turboCurrent(scope, generation) && ultraSentRef.current === false) ultraSentRef.current = null;
-        });
-      } catch (error) { if (turboCurrent(scope, generation)) ultraSentRef.current = null; }
-    }, [turboReady, shown, realEffortCount, loading, sessionId]);
 
     useEffect(function () {
       if (available) loadDirectory();
@@ -1690,8 +1210,6 @@
     var currentName = loading ? "…" : effortName(current, shown, levelCount);
     // ULTRA 态：最后一格（真实档位之外的那一格）。别用 pct 判 —— 那是比例，会被分母骗。
     var isUltra = !loading && realEffortCount > 0 && shown === realEffortCount;
-    // 策略 chip 的展开态：**没策略就永远不展开**（不可展开，见下面 .es-policy 的渲染）
-    var policyOpenNow = !!(policy && policyOpen);
 
     function indexFromClientX(clientX) {
       var node = railRef.current;
@@ -1752,57 +1270,32 @@
      *   3) 之后才轮到「目标档位就是已提交档位 → 早退」。这条不能提到最前：
      *      上一次提交还没落地的窗口里，它会把合法提交一起吞掉。
      *
-     * ★ ULTRA 的提交语义（契约 §2 / 需求 A）：
+     * ★ ULTRA 的提交语义：
      *   · reasoningEffort 永远写**真实档位**的 id —— 选中 ULTRA 时写最后一档（MAX）的 id，
      *     因为"ULTRA"根本不是模型目录里的档位，写进去只会被目录拒掉。
-     *   · 同时把 `ultra: true/false` 单独推给宿主（turbo 路由），由宿主去注入策略。
-     *   · 推 ULTRA 位是 fail-open 的旁路：它失败**不**回滚档位（回了反而更糟：
-     *     模型档位明明写成功了却给用户报失败）。
      */
     function next(nextIndex, fromDrag) {
       if (typeof nextIndex !== "number" || !(nextIndex >= 0) || nextIndex >= levelCount) return;
       var target = levels[nextIndex];
       if (!target || typeof target.id !== "string" || target.id === "") return;
       if (!effort || !effort.selection) return;
-      var scope = turboScope;
-      var generation = scope.generation;
-      var operation = ++scope.commitVersion;
-      scope.mutationVersion += 1;
-      scope.ultraVersion += 1;
-      if (scope.selection) scope.selection.cancel();
-      function currentCommit() { return turboCurrent(scope, generation) && operation === scope.commitVersion; }
+      var operation = ++commitVersionRef.current;
+      if (selectionRef.current) selectionRef.current.cancel();
+      function currentCommit() { return operation === commitVersionRef.current; }
       // ULTRA 提交语义：ULTRA 只是展示层的最后一格，写进模型目录的必须是最后一个
-      // **真实** effort 的 id（也就是 MAX 的值）；ULTRA 位另走 turbo 路由推给宿主。
+      // **真实** effort 的 id（也就是 MAX 的值）。
       var wantUltra = nextIndex > realEffortCount - 1;
       var effortTarget = wantUltra ? efforts[realEffortCount - 1] : target;
       if (!effortTarget || typeof effortTarget.id !== "string" || effortTarget.id === "") return;
 
-      /** 把 ULTRA 位推给宿主。去重后只发变化；任何失败都吞掉（旁路信息，不影响档位）。 */
-      var pushUltra = function () {
-        if (!currentCommit()) return;
-        if (ultraSentRef.current === wantUltra) return;
-        ultraSentRef.current = wantUltra;
-        try {
-          turboPatch({ ultra: wantUltra }).then(noop, function () {
-            // 推送失败：把去重标记回退，下一次换档会重新尝试（不回滚档位）
-            if (currentCommit() && ultraSentRef.current === wantUltra) ultraSentRef.current = null;
-          });
-        } catch (error) { if (currentCommit()) ultraSentRef.current = null; }
-      };
-      pushUltraRef.current = pushUltra;
-
       if (nextIndex === committed) {
+        // 点的是当前已提交的真实档位 → 没有可提交的变化；点刻度 / 方向键取消弹回动画即可。
+        // （ULTRA 的下标 === realEffortCount，而 committed 最多到 realEffortCount - 1，
+        //   所以"点在 ULTRA 上"永远不会走进这个早退分支。）
         setBusy(false);
         setFailed(false);
         putDraft(committed);
-        // 没换档（含 ULTRA 位也已同步）：点刻度 / 方向键这类非拖拽路径取消弹回动画即可；
-        // 拖拽路径刚由 onRailUp 打开弹回动画（setSnap(true)），这里别把它关掉。
-        // ⚠️ 只比下标、**不**比 ultraSentRef：否则「首次点亮 ULTRA」会被误判成"没换档"
-        //    而把 ULTRA 位吞掉（committed 是真实档位下标，ULTRA 与 MAX 共用同一个 index 值）。
         if (!fromDrag) setSnap(false);
-        if (ultraSentRef.current === wantUltra) return;
-        // 档位没变但 ULTRA 位要变（MAX ↔ 宿主侧 ultra=false 的自愈）→ 只推位，不重写目录。
-        pushUltraRef.current();
         return;
       }
       // ② 吸附路径（点刻度 / 方向键）：按**移动距离**定时长，让速度恒定。
@@ -1810,7 +1303,6 @@
       if (!fromDrag) armSnapDuration(nextIndex);
       if (!fromDrag) setSnap(true);
       putDraft(nextIndex);
-      setUltraOn(wantUltra);      // 本地表态：之后再来的心跳不再覆盖这一格
       bumpPulse(function (n) { return n + 1; });
       setBusy(true);
       setFailed(false);
@@ -1819,9 +1311,9 @@
         selection.finished = true;
         if (selection.timer !== null) clearTimeout(selection.timer);
         selection.timer = null;
-        if (scope.selection === selection) scope.selection = null;
+        if (selectionRef.current === selection) selectionRef.current = null;
       } };
-      scope.selection = selection;
+      selectionRef.current = selection;
       function finishSelection() {
         if (selection.finished || !currentCommit()) return false;
         selection.cancel();
@@ -1846,7 +1338,6 @@
           if (!finishSelection()) return;
           setBusy(false);
           if (!ok) { rollback(); return; }
-          pushUltra();                     // 档位写成功了才动宿主状态，避免"档位没切成、策略却注入了"
         }, function () { if (finishSelection()) rollback(); });
       } catch (error) {
         // commit 同步抛（目录被销毁之类）：走同一条回滚路径，绝不冒泡成未处理异常
@@ -1949,9 +1440,7 @@
       // 档位进度仍然由展开后的轨道本体与读数表达；收起态不再有环。
       h("span", { className: "es-pill__name" }, currentName),
       // 收起态**只有档位文字** —— 一行都不许多。
-      //   · 用户先后要求删掉 MAX 左边那颗圆球（.es-orb）与 MAX 右边的闪电：
-      //     "闪电不应该放这里，应该展开之后才能看到"。
-      //   · 所以闪电挪进了展开后的面板（见下面 .es-foot 里的 .es-pill__bolt）。
+      //   （历史：MAX 左边那颗圆球 .es-orb 与 MAX 右边的闪电都已按用户要求删除。）
     );
 
     // 刻度按**展示档位**（含 ULTRA）分布。
@@ -2012,28 +1501,6 @@
       h("div", { className: "es-head" },
         h("span", { className: "es-title" }, "Reasoning effort"),
         h("span", { className: "es-model" }, effort ? effort.modelName : "Loading…"),
-        // ★ 闪电控件：面板**右上角**，脱离文档流。
-        //   用户反馈原文：「闪电的位置一直在跳动当拉动滑动条时…闪电应该放到一个角落而不是居中」。
-        //   根因：它原来是 `.es-foot` 的第二个 flex 子元素，而那一行是
-        //   `justify-content:space-between` —— 拖动滑条时读数文字（"5 / ULTRA" → "3 / HIGH"）
-        //   宽度在变，等于每帧给中间元素重新分配空间，于是闪电跟着左右跳。
-        //   放进 `.es-head`（本身 position:relative）并绝对定位 → 位置与任何文字宽度无关。
-        //   类名仍沿用 `.es-pill__bolt`：CSS 按这个名字写死了方块与发光，
-        //   改类名要同时动 CSS 与检查脚本、收益为零。
-        h("button", {
-          type: "button",
-          className: "es-pill__bolt",
-          // 形状 = 内联 SVG 描边（见 boltTree() 的注释：旧 clip-path+mask 那套是几何错误）。
-          // React 对 `h("svg")` 会自动走 SVG 命名空间；boltTree() 里还有一次命名空间自检。
-          ref: boltRef,
-          "data-on": lightning ? "1" : "0",
-          "aria-pressed": lightning ? "true" : "false",
-          "aria-label": "Lightning mode: the parent agent only orchestrates and fans out to subagents",
-          title: "Lightning mode: the parent agent only orchestrates and fans out to subagents",
-          disabled: loading,
-          onClick: toggleLightning,
-          onPointerDown: function (event) { event.stopPropagation(); },
-        }, boltTree()),
       ),
       h("div", { className: "es-desc" }, failed ? FAIL_HINT : effortDesc(current, shown, levelCount)),
       h("div", { className: "es-railWrap" },
@@ -2092,29 +1559,11 @@
           h("span", { className: "es-readout__of" }, "/ " + String(levelCount)),
           h("span", { className: "es-readout__name" + (isUltra ? " es-panel__level--ultra" : "") }, currentName),
         ),
-        // ★ 舰队 tok/s 读数：**始终在树里**，靠 data-idle 控制显隐（契约 §4：data-idle="1"
-        //   时整块隐藏）。CSS 给 .es-rate 留了 min-width 与等宽数字（tabular-nums），
-        //   数字变化不会让 pill 抖一下。rate 是宿主算好的整数 tok/s，
-        //   这里只做安全收口（NaN / 负数一律当 0）+ toLocaleString 千分位 ——
-        //   **绝不** k/M 缩写（用户明确要求"显示大数字有逼格"）。
-        h("div", {
-          className: "es-rate",
-          "data-idle": rate > 0 ? "0" : "1",
-          title: "Fleet token throughput for this session (generation + input)",
-        },
-          h("span", { className: "es-rate__num" }, rate.toLocaleString("en-US")),
-          h("span", { className: "es-rate__unit" }, "tok/s"),
-        ),
         h("div", { className: "es-skins" }, skinChips),
       ),
-      // ★ 策略 chip **已按用户要求整块删除**（原话：「不需要显示策略」）。
-      //   策略正文仍然会**注入到提示词里**（那是功能本体，走宿主 policy.mjs 的 agent/pre-step），
-      //   只是界面上不再展示：用户不需要在面板里读一份英文契约。
-      //   CSS 里的 `.es-policy*` 规则保留未删 —— 那是"样式表里有、渲染时不用"，
-      //   与"渲染出来却永远 display:none"（§3-L 的 .es-rail__core 事故）不是一回事；
-      //   删它反而会让 CSS 契约检查（⑥ 选择器齐全）失去锚点，收益为零。
-      // 扁进度指示条（.es-energy）与收起态圆球（.es-orb*）也都已按用户要求删除：
-      // 档位进度只由轨道本体 + 面板读数（es-readout）两处表达。
+      // ★ ULTRA 档位保留：它只是滑条的最后一格（选中 → 写模型目录里真实的 MAX 档）。
+      //   ULTRA / 闪电**策略注入子系统已整体移除**（不再有 agent/pre-step 注入、
+      //   不再有 /turbo 路由、不再有舰队 tok/s 读数），插件只剩"切换推理档位"这一件事。
     );
 
     var rootProps = {
@@ -2130,11 +1579,10 @@
       ref: rootRef,
       style: { "--pct": pct.toFixed(3) + "%", "--ratio": ratio.toFixed(4) },
     };
-    // ★ 根状态（契约 §4）：ULTRA 时才有 data-ultra="1"；闪电开启时才有 data-lightning="1"。
+    // ★ 根状态（契约 §4）：ULTRA 时才有 data-ultra="1"。
     //   用条件赋值而不是 `{...cond && {...}}` / 对象展开 —— 后者要 Babel 的
     //   object-rest-spread 插件，宿主加载器不做转译，老引擎上会直接语法错。
     if (isUltra) rootProps["data-ultra"] = "1";
-    if (lightning) rootProps["data-lightning"] = "1";
     return h("div", rootProps, open ? panel : null, core);
   }
 
@@ -2847,8 +2295,7 @@
               return {
                 api: api,
                 preferences: preferences,
-                // ★ 会话 id 必须往组件里传：turbo 路由（GET/PATCH）靠它精确定位到这一颗会话。
-                //   宿主实现侧会读；拿不到时组件自己会跳过全部 turbo 请求（fail-open）。
+                // 会话 id 往组件里传：换会话时用来作废在途的档位提交并复位面板。
                 sessionId: sessionId,
                 available: available,
                 store: store,

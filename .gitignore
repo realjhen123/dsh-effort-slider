@@ -14,3 +14,6 @@ Thumbs.db
 # 本机临时产物（预览生成器、探针脚本的输出）
 preview/*.local.html
 *.local.*
+
+# 运行时偏好文件（DSH_HOME 未设置时会落到插件目录）
+effort-slider.json

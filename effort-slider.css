@@ -377,18 +377,16 @@
 @keyframes es-loading-pulse{0%,100%{opacity:.45}50%{opacity:1}}
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   ★ ULTRA 档位层 + 闪电控件 / tok·s⁻¹ 读数 / 策略 chip
+   ★ ULTRA 档位层（闪电 / tok·s⁻¹ 读数 / 策略 chip 的规则仍留在本文件，但已不再渲染）
    （本段为纯追加：不重排、不覆盖任何既有规则；JS 侧写入的 DOM 契约见下）
 
    DOM 契约（由 JS 提供，本段只负责长相）：
-     · 根节点 [data-effort-slider] 上挂  data-ultra="1" / data-lightning="1"
+     · 根节点 [data-effort-slider] 上挂  data-ultra="1"（data-lightning 已不再写）
      · 轨道内 .es-rail__core（默认 display:none，仅 data-ultra=1 出现）
      · 旋钮附加态 .es-knob--ultra
      · 面板档位文字 .es-panel__level--ultra
-     · 闪电 .es-pill__bolt[data-on="0|1"]
-     · 读数 .es-rate > .es-rate__num + .es-rate__unit，[data-idle="1"] 整块隐藏
-     · 策略 .es-policy > .es-policy__body，[data-open="1"] 展开
-     · 发光强度由 JS 写 CSS 变量 --es-rate(0–1，未定义按 0 处理) 驱动
+     · 历史残留（不渲染）：.es-pill__bolt / .es-rate / .es-policy 的规则保留未删，
+       以免动到已验证过的样式表结构；JS 不再生成这些节点。
 
    设计方向：铂金 / 白炽 / 冰白。只用"亮度层次 + 发丝级 1px + 内阴影"做质感，
    不用粗边框、不用霓虹彩虹。所有动画都是 5s 量级的慢呼吸或低振幅微抖

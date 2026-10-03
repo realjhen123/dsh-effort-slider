@@ -7,7 +7,7 @@ import { test } from "node:test";
 // same source in an isolated VM with real promises, controllable transports and
 // committed hook effects so cancellation races are exercised without a live app.
 const source = readFileSync(new URL("../client.js", import.meta.url), "utf8")
-  .replace("module.exports = {", "module.exports = { __test: { turboFetch, createLazyDirectoryStore, hostSubscribe, EffortSlider, setReact: function (value) { React = value; } },");
+  .replace("module.exports = {", "module.exports = { __test: { createLazyDirectoryStore, hostSubscribe, EffortSlider, setReact: function (value) { React = value; } },");
 const flushPromises = async () => { for (let i = 0; i < 15; i += 1) await Promise.resolve(); };
 function deferred() {
   let resolve, reject;
@@ -27,7 +27,6 @@ function environment() {
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, at: now + ms }); return id; },
     clearTimeout(id) { timers.delete(id); },
     fetch(url, init = {}) {
-      if (!url.includes("/turbo")) return Promise.resolve(response({}));
       const transport = deferred();
       requests.push({ url, init, ...transport });
       return transport.promise; // Intentionally ignores abort, like a broken transport.
@@ -145,32 +144,6 @@ function hookHarness(env, props = {}) {
   };
 }
 
-test("turbo requests settle and abort on timeout, including a hanging JSON body", async () => {
-  const env = environment();
-  const request = env.helpers.turboFetch("/turbo");
-  const rejected = assert.rejects(request, { name: "TimeoutError" });
-  env.requests[0].resolve({ ok: true, json: () => new Promise(() => {}) });
-  await flushPromises();
-  env.advance(5000);
-  await rejected;
-  assert.equal(env.requests[0].init.signal.aborted, true);
-  assert.equal(env.timers.size, 0);
-});
-
-test("external abort settles even when fetch ignores it; synchronous errors clear timers", async () => {
-  const env = environment(), controller = new AbortController();
-  const request = env.helpers.turboFetch("/turbo", { signal: controller.signal });
-  const rejected = assert.rejects(request, { name: "AbortError" });
-  controller.abort();
-  await rejected;
-  assert.equal(env.requests[0].init.signal.aborted, true);
-  env.requests[0].resolve(response({ ok: true }));
-  await flushPromises();
-  env.sandbox.fetch = () => { throw new Error("offline"); };
-  await assert.rejects(env.helpers.turboFetch("/turbo"), /offline/);
-  assert.equal(env.timers.size, 0);
-});
-
 test("lazy adapters use one host subscription, release replacements and survive StrictMode", async () => {
   const env = environment(), one = trackedStore(), two = trackedStore(snapshot("low"));
   let current = directory(one), notifications = 0;
@@ -244,150 +217,40 @@ test("adapter cache keeps active references, bounds idle entries and disposes wi
   await flushPromises();
 });
 
-test("unmount cancels an in-flight poll and its promise cannot schedule another timer", async () => {
-  const env = environment(), harness = hookHarness(env);
-  harness.flush();
-  env.requests[0].resolve(response({ lightning: true, ultra: false, rate: 20 }));
-  await flushPromises(); harness.flush();
-  // Settle the Ultra correction, then let the poll begin.
-  env.requests.filter((r) => r.init.method === "PATCH").forEach((r) => r.resolve(response({ ok: true })));
-  await flushPromises(); env.advance(1000);
-  const poll = env.requests.filter((r) => !r.init.method).at(-1);
-  assert.notEqual(poll, env.requests[0]);
-  harness.unmount();
-  assert.equal(poll.init.signal.aborted, true);
-  poll.resolve(response({ lightning: true, rate: 999 }));
-  await flushPromises(); env.advance(20000); await flushPromises();
-  assert.equal(env.timers.size, 0);
-  assert.equal(harness.unmountedUpdates, 0);
-  assert.equal(env.requests.filter((r) => !r.init.method).length, 2);
-});
-
-test("a response after a new session commits cannot update the new session", async () => {
-  const env = environment(), harness = hookHarness(env);
-  harness.flush();
-  const old = env.requests[0];
-  harness.renderOnly({ sessionId: "b", store: trackedStore(snapshot("low")) });
-  harness.commit(); harness.flush();
-  const updates = harness.updates;
-  old.resolve(response({ lightning: true, ultra: true, rate: 999 }));
-  await flushPromises();
-  assert.equal(harness.updates, updates);
-  assert.equal(old.init.signal.aborted, true);
-  assert.ok(env.requests.at(-1).url.endsWith("session=b"));
-  env.requests.at(-1).resolve(response({ lightning: false, ultra: false, rate: 0 }));
-  await flushPromises(); harness.flush();
-  assert.equal(harness.tree.props["data-lightning"], undefined);
-  harness.unmount(); await flushPromises();
-});
-
-test("an abandoned concurrent render leaves the committed session's scope working", async () => {
-  const env = environment(), store = trackedStore(), harness = hookHarness(env, { store });
-  harness.flush();
-  harness.renderOnly({ sessionId: "b" }); // React starts and then abandons this render.
-  harness.renderOnly({ sessionId: "a", store }); harness.commit();
-  env.requests[0].resolve(response({ lightning: true, ultra: false, rate: 12 }));
-  await flushPromises(); harness.flush();
-  assert.equal(harness.tree.props["data-lightning"], "1");
-  assert.equal(env.requests.filter((r) => !r.init.method).length, 1);
-  harness.unmount(); await flushPromises();
-  assert.equal(env.timers.size, 0);
-});
-
-test("StrictMode effect replay aborts its first read and issues a fresh unthrottled read", async () => {
-  const env = environment(), harness = hookHarness(env);
-  harness.flush();
-  const first = env.requests[0];
-  harness.replayEffects();
-  assert.equal(first.init.signal.aborted, true);
-  assert.equal(env.requests.length, 2);
-  first.resolve(response({ lightning: true, ultra: true, rate: 999 }));
-  env.requests[1].resolve(response({ lightning: false, ultra: false, rate: 0 }));
-  await flushPromises(); harness.flush();
-  assert.equal(harness.tree.props["data-lightning"], undefined);
-  assert.equal(harness.tree.props["data-ultra"], undefined);
-  harness.unmount(); await flushPromises();
-  assert.equal(env.timers.size, 0);
-});
-
-test("initial persisted Ultra survives hydration and still commits the real max effort", async () => {
+test("ULTRA 档位（合成档）提交的是真实 MAX effort", async () => {
   const env = environment(), selections = [];
   const harness = hookHarness(env, { commit(selection) { selections.push(selection); return Promise.resolve(true); } });
   harness.flush();
-  assert.equal(env.requests.length, 1, "no corrective PATCH may race the first authoritative read");
-  env.requests[0].resolve(response({ lightning: false, ultra: true, rate: 0 }));
-  await flushPromises(); harness.flush(); await flushPromises(); harness.flush();
+  harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
+  // committed = max（下标 4）；ArrowRight → ULTRA（下标 5，展示层最后一格）
+  harness.find("es-rail").props.onKeyDown({ key: "ArrowRight", preventDefault() {} });
+  harness.flush();
+  await flushPromises(); harness.flush();
+  assert.equal(selections.length, 1, "只提交一次");
+  assert.equal(selections[0].reasoningEffort, "max", "ULTRA 写进目录的必须是真实 MAX 档");
   assert.equal(harness.tree.props["data-ultra"], "1");
-  assert.equal(selections[0].reasoningEffort, "max");
-  const patches = env.requests.filter((r) => r.init.method === "PATCH");
-  assert.ok(patches.some((r) => JSON.parse(r.init.body).ultra === true));
-  assert.ok(patches.every((r) => JSON.parse(r.init.body).ultra !== false));
   harness.unmount(); await flushPromises();
 });
 
-test("changing effort before hydration ignores stale Ultra while still restoring independent lightning", async () => {
-  const env = environment(), store = trackedStore();
-  const harness = hookHarness(env, { store, commit(selection) {
-    store.push(snapshot(selection.reasoningEffort)); return Promise.resolve(true);
-  } });
-  harness.flush();
-  harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
-  harness.find("es-rail").props.onKeyDown({ key: "ArrowLeft", preventDefault() {} }); harness.flush();
-  await flushPromises(); harness.flush();
-  env.requests[0].resolve(response({ lightning: true, ultra: true, rate: 0 }));
-  await flushPromises(); harness.flush();
-  assert.equal(harness.tree.props["data-lightning"], "1");
-  assert.equal(harness.tree.props["data-ultra"], undefined);
-  assert.equal(store.getSnapshot().current.reasoningEffort, "xhigh");
-  harness.unmount(); await flushPromises();
-  assert.equal(env.timers.size, 0);
-});
-
-test("late PATCH and model commit completions cannot roll back or relock another session", async () => {
+test("未落地的档位选择在十秒后释放滑条且不被迟到成功复活", async () => {
   const env = environment(), modelCommit = deferred();
   const harness = hookHarness(env, { commit: () => modelCommit.promise });
-  harness.flush(); env.requests[0].resolve(response({ lightning: false, ultra: false, rate: 0 }));
-  await flushPromises(); harness.flush();
-  env.requests.filter((r) => r.init.method === "PATCH").forEach((r) => r.resolve(response({ ok: true })));
-  await flushPromises();
-  harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
-  harness.find("es-pill__bolt").props.onClick({ stopPropagation() {} }); harness.flush();
-  const patch = env.requests.at(-1);
-  harness.find("es-rail").props.onKeyDown({ key: "ArrowLeft", preventDefault() {} }); harness.flush();
-  assert.equal(harness.tree.props["data-busy"], "1");
-  harness.flush({ sessionId: "b", store: trackedStore(snapshot("medium")) });
-  const before = harness.updates;
-  patch.reject(new Error("late failure")); modelCommit.resolve(false);
-  await flushPromises();
-  assert.equal(harness.updates, before);
   harness.flush();
-  assert.equal(harness.tree.props["data-busy"], "0");
-  assert.equal(harness.tree.props["data-failed"], "0");
-  harness.unmount(); await flushPromises();
-});
-
-test("an unresolved model selection releases the slider after ten seconds without cancelling the host", async () => {
-  const env = environment(), modelCommit = deferred();
-  const harness = hookHarness(env, { commit: () => modelCommit.promise });
-  harness.flush(); env.requests[0].resolve(response({ lightning: false, ultra: false, rate: 0 }));
-  await flushPromises(); harness.flush();
-  env.requests.filter((r) => r.init.method === "PATCH").forEach((r) => r.resolve(response({ ok: true })));
-  await flushPromises();
   harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
-  harness.find("es-rail").props.onKeyDown({ key: "ArrowLeft", preventDefault() {} }); harness.flush();
+  harness.find("es-rail").props.onKeyDown({ key: "ArrowLeft", preventDefault() {} });
+  harness.flush();
   assert.equal(harness.tree.props["data-busy"], "1");
   env.advance(10000); await flushPromises(); harness.flush();
   assert.equal(harness.tree.props["data-busy"], "0");
   assert.equal(harness.tree.props["data-failed"], "1");
-  const before = harness.updates, requests = env.requests.length;
+  const before = harness.updates;
   modelCommit.resolve(true); await flushPromises();
-  assert.equal(harness.updates, before, "a late success cannot revive the expired UI operation");
-  assert.equal(env.requests.length, requests, "an expired selection cannot send a late Ultra PATCH");
+  assert.equal(harness.updates, before, "迟到的成功不能复活已过期的操作");
   harness.unmount(); await flushPromises();
   assert.equal(env.timers.size, 0);
 });
 
-test("returning to the committed level clears a previous selection's busy flag and deadline", async () => {
+test("回到已提交档位会清掉上一次选择的 busy 与超时", async () => {
   const env = environment(), modelCommit = deferred();
   const harness = hookHarness(env, { commit: () => modelCommit.promise });
   harness.flush();
@@ -400,4 +263,22 @@ test("returning to the committed level clears a previous selection's busy flag a
   assert.equal(harness.tree.props["data-failed"], "0");
   harness.unmount(); await flushPromises();
   assert.equal(env.timers.size, 0);
+});
+
+test("换会话后迟到的提交不能回滚或锁住新会话", async () => {
+  const env = environment(), modelCommit = deferred();
+  const harness = hookHarness(env, { commit: () => modelCommit.promise });
+  harness.flush();
+  harness.find("es-pill").props.onClick({ stopPropagation() {} }); harness.flush();
+  harness.find("es-rail").props.onKeyDown({ key: "ArrowLeft", preventDefault() {} }); harness.flush();
+  assert.equal(harness.tree.props["data-busy"], "1");
+  harness.flush({ sessionId: "b", store: trackedStore(snapshot("medium")) });
+  const before = harness.updates;
+  modelCommit.resolve(false);
+  await flushPromises();
+  assert.equal(harness.updates, before, "旧会话的迟到提交不能改动新会话");
+  harness.flush();
+  assert.equal(harness.tree.props["data-busy"], "0");
+  assert.equal(harness.tree.props["data-failed"], "0");
+  harness.unmount(); await flushPromises();
 });
